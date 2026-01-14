@@ -501,6 +501,7 @@ interface Hooks {
 1. Create `packages/core/src/session/compaction.ts`
 2. Implement automatic context window management
 3. Add `experimental.session.compacting` hook integration
+4. (Phase 7) Enhanced compaction with Summarization and Pinning
 
 ---
 
@@ -572,6 +573,23 @@ interface Hooks {
 1. Port `web-tree-sitter` configuration and WASM loader.
 2. Use `opencode`'s configuration which loads language definitions from GitHub (frontend-compatible).
 3. Implement `AST` service in `packages/core/src/ast` for safe code modification and symbol extraction.
+4. Port robust replacement strategies from `opencode` (`BlockAnchor`, `ContextAware`, etc.) to `packages/core/src/utils/edit-strategies.ts`.
+
+---
+
+### Phase 7: Context Management Optimization (MEDIUM Priority)
+
+**Objective**: Optimize context usage for long-running sessions using summarization and pinning.
+
+**Actions**:
+
+1. **Enhanced Compaction**: Upgrade `compaction.ts` to support:
+   - **Summarization**: Use LLM to summarize dropped message blocks.
+   - **Pinning**: Add `pinnedIds` to ignore specific messages during compaction.
+2. **Session Updates**:
+   - Add `summary` and `pinnedMessageIds` to session state.
+   - Implement `pinMessage` and `unpinMessage` APIs.
+3. **Token Management**: Add `tiktoken` counting for precise budget management.
 
 ---
 
@@ -647,8 +665,9 @@ For each migrated feature:
 | **Phase 4**: ACP Enhancement         | 2 weeks   | Phase 2      | State machine, compaction             |
 | **Phase 5**: Multi-Provider          | 1.5 weeks | Phase 4      | Azure, Bedrock, Google, OpenRouter    |
 | **Phase 6**: Tool Optimization + AST | 2 weeks   | Phase 1      | Optimized grep/multiedit, Tree-sitter |
+| **Phase 7**: Context Management      | 1 week    | Phase 6      | Summarization, Pinning                |
 
-**Total Estimated Duration**: 11 weeks
+**Total Estimated Duration**: 12 weeks
 
 ---
 
