@@ -23,10 +23,10 @@ export const FileDiagnosticsInputSchema = z.object({
   /** Path to the file to get diagnostics for */
   file: z.string().min(1, 'File path is required'),
   /** Whether to wait for diagnostics to be published */
-  waitForDiagnostics: z.boolean().optional().default(true),
+  waitForDiagnostics: z.boolean().default(true),
 });
 
-export type FileDiagnosticsInput = z.infer<typeof FileDiagnosticsInputSchema>;
+export type FileDiagnosticsInput = z.input<typeof FileDiagnosticsInputSchema>;
 
 /**
  * Input schema for project diagnostics.

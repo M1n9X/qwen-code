@@ -10,7 +10,11 @@
  * @module plugin
  */
 
-export { PluginManager } from './plugin-manager.js';
+export {
+  PluginManager,
+  type LoadedPlugin,
+  type PluginManagerEvents,
+} from './plugin-manager.js';
 
 // Re-export types from plugin package for convenience
 export type {

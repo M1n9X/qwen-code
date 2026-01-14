@@ -16,8 +16,14 @@ import type {
   ListSkillsOptions,
   SkillValidationResult,
   SkillCompatibility,
+  SkillValidationError,
 } from './types.js';
-import { SkillError, SkillErrorCode, SkillValidation } from './types.js';
+import {
+  SkillError,
+  SkillErrorCode,
+  SkillValidation,
+  validateSkill,
+} from './types.js';
 import type { Config } from '../config/config.js';
 
 const QWEN_CONFIG_DIR = '.qwen';
@@ -243,12 +249,12 @@ export class SkillManager {
    * @returns XML output
    */
   getSkillAsXml(skillCmd: SkillConfig): string {
-    let xml = `<skill name="${skillCmd.name}">\n`;
-    xml += `  <description>${skillCmd.description}</description>\n`;
+    let xml = `<skill name="${this.escapeXml(skillCmd.name)}">\n`;
+    xml += `  <description>${this.escapeXml(skillCmd.description)}</description>\n`;
     if (skillCmd.allowedTools && skillCmd.allowedTools.length > 0) {
       xml += `  <tools>\n`;
       for (const tool of skillCmd.allowedTools) {
-        xml += `    <tool>${tool}</tool>\n`;
+        xml += `    <tool>${this.escapeXml(tool)}</tool>\n`;
       }
       xml += `  </tools>\n`;
     }
@@ -261,6 +267,197 @@ export class SkillManager {
     xml += `  </instructions>\n`;
     xml += `</skill>`;
     return xml;
+  }
+
+  /**
+   * Generates XML prompt representation for multiple skills.
+   * Wraps all skills in a <skills> root element.
+   *
+   * @param skills - Array of skill configurations
+   * @returns Well-formed XML string containing all skills
+   */
+  toPromptXML(skills: SkillConfig[]): string {
+    if (skills.length === 0) {
+      return '<skills />';
+    }
+
+    let xml = '<skills>\n';
+    for (const skill of skills) {
+      // Indent each skill's XML
+      const skillXml = this.getSkillAsXml(skill);
+      const indentedLines = skillXml.split('\n').map((line) => `  ${line}`);
+      xml += indentedLines.join('\n') + '\n';
+    }
+    xml += '</skills>';
+    return xml;
+  }
+
+  /**
+   * Escapes special XML characters in a string.
+   *
+   * @param str - String to escape
+   * @returns Escaped string safe for XML
+   */
+  private escapeXml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /**
+   * Discovers skills from a root path using concurrent file walking.
+   * This is an alternative to listSkills that scans arbitrary directories.
+   *
+   * @param rootPath - Root directory to scan for skills
+   * @param options - Discovery options
+   * @returns Array of discovered and validated skill configurations
+   */
+  async discoverSkills(
+    rootPath: string,
+    options: { validateOnDiscovery?: boolean; concurrency?: number } = {},
+  ): Promise<SkillConfig[]> {
+    const { validateOnDiscovery = true, concurrency = 10 } = options;
+    const skills: SkillConfig[] = [];
+    const invalidSkills: Array<{
+      path: string;
+      errors: SkillValidationError[];
+    }> = [];
+
+    // Find all SKILL.md files concurrently
+    const skillFiles = await this.findSkillFiles(rootPath);
+
+    // Process files in batches for concurrency control
+    const batches: string[][] = [];
+    for (let i = 0; i < skillFiles.length; i += concurrency) {
+      batches.push(skillFiles.slice(i, i + concurrency));
+    }
+
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (filePath) => {
+          try {
+            const content = await fs.readFile(filePath, 'utf8');
+            // Determine level based on path
+            const level = this.determineLevelFromPath(filePath);
+            const config = this.parseSkillContent(content, filePath, level);
+
+            if (validateOnDiscovery) {
+              const errors = validateSkill(config);
+              if (errors.length > 0) {
+                invalidSkills.push({ path: filePath, errors });
+                console.warn(
+                  `Skill at ${filePath} has validation errors: ${errors.map((e) => e.message).join(', ')}`,
+                );
+                return null;
+              }
+            }
+
+            return config;
+          } catch (error) {
+            console.warn(
+              `Failed to parse skill at ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+            return null;
+          }
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value !== null) {
+          skills.push(result.value);
+        }
+      }
+    }
+
+    return skills;
+  }
+
+  /**
+   * Finds all SKILL.md files under a root path.
+   *
+   * @param rootPath - Root directory to scan
+   * @returns Array of absolute paths to SKILL.md files
+   */
+  private async findSkillFiles(rootPath: string): Promise<string[]> {
+    const skillFiles: string[] = [];
+
+    const scanDir = async (dirPath: string): Promise<void> => {
+      try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+        const promises: Array<Promise<void>> = [];
+
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
+
+          if (entry.isDirectory()) {
+            // Skip node_modules and hidden directories (except .qwen)
+            if (
+              entry.name === 'node_modules' ||
+              (entry.name.startsWith('.') && entry.name !== '.qwen')
+            ) {
+              continue;
+            }
+            promises.push(scanDir(fullPath));
+          } else if (entry.isFile() && entry.name === SKILL_MANIFEST_FILE) {
+            skillFiles.push(fullPath);
+          }
+        }
+
+        await Promise.all(promises);
+      } catch {
+        // Directory not accessible, skip
+      }
+    };
+
+    await scanDir(rootPath);
+    return skillFiles;
+  }
+
+  /**
+   * Determines the skill level based on file path.
+   *
+   * @param filePath - Path to the skill file
+   * @returns 'project' or 'user' level
+   */
+  private determineLevelFromPath(filePath: string): SkillLevel {
+    const homeDir = os.homedir();
+    const userSkillsDir = path.join(
+      homeDir,
+      QWEN_CONFIG_DIR,
+      SKILLS_CONFIG_DIR,
+    );
+
+    if (filePath.startsWith(userSkillsDir)) {
+      return 'user';
+    }
+    return 'project';
+  }
+
+  /**
+   * Gets a skill by name from the cache.
+   *
+   * @param name - Name of the skill to get
+   * @returns SkillConfig or undefined if not found
+   */
+  getSkill(name: string): SkillConfig | undefined {
+    if (!this.skillsCache) {
+      return undefined;
+    }
+
+    // Check project level first
+    const projectSkills = this.skillsCache.get('project') || [];
+    const projectSkill = projectSkills.find((s) => s.name === name);
+    if (projectSkill) {
+      return projectSkill;
+    }
+
+    // Check user level
+    const userSkills = this.skillsCache.get('user') || [];
+    return userSkills.find((s) => s.name === name);
   }
 
   /**

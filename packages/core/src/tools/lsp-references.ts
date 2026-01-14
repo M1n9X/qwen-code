@@ -29,10 +29,10 @@ export const ReferencesInputSchema = z.object({
   /** Column number (1-indexed) */
   column: z.number().int().min(1, 'Column must be at least 1'),
   /** Whether to include the declaration in results */
-  includeDeclaration: z.boolean().optional().default(true),
+  includeDeclaration: z.boolean().default(true),
 });
 
-export type ReferencesInput = z.infer<typeof ReferencesInputSchema>;
+export type ReferencesInput = z.input<typeof ReferencesInputSchema>;
 
 /**
  * A single reference location.

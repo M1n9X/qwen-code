@@ -21,9 +21,165 @@ export const SkillValidation = {
   MaxDescriptionLength: 500,
   /** Maximum length for skill body/instructions */
   MaxBodyLength: 50000,
+  /** Maximum length for compatibility field */
+  MaxCompatibilityLength: 500,
   /** Pattern for valid skill names (lowercase, alphanumeric, underscores, hyphens) */
   NamePattern: /^[a-z][a-z0-9_-]*$/,
+  /** Alternative pattern for agentskills.io spec (alphanumeric with hyphens) */
+  AgentSkillsNamePattern: /^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$/,
+  /** Skill manifest file name */
+  SkillFileName: 'SKILL.md',
 } as const;
+
+/**
+ * Represents a validation error for a specific field.
+ */
+export interface SkillValidationError {
+  /** The field that failed validation */
+  field: string;
+  /** Human-readable error message */
+  message: string;
+  /** The invalid value (if applicable) */
+  value?: unknown;
+}
+
+/**
+ * Validates a skill configuration and returns detailed errors.
+ *
+ * @param skill - Partial skill configuration to validate
+ * @returns Array of validation errors (empty if valid)
+ */
+export function validateSkill(
+  skill: Partial<SkillConfig>,
+): SkillValidationError[] {
+  const errors: SkillValidationError[] = [];
+
+  // Validate name
+  if (skill.name === undefined || skill.name === null) {
+    errors.push({
+      field: 'name',
+      message: 'Name is required',
+    });
+  } else if (typeof skill.name !== 'string') {
+    errors.push({
+      field: 'name',
+      message: 'Name must be a string',
+      value: skill.name,
+    });
+  } else if (skill.name.trim() === '') {
+    errors.push({
+      field: 'name',
+      message: 'Name cannot be empty',
+      value: skill.name,
+    });
+  } else {
+    // Check name length
+    if (skill.name.length > SkillValidation.MaxNameLength) {
+      errors.push({
+        field: 'name',
+        message: `Name exceeds maximum length of ${SkillValidation.MaxNameLength} characters (got ${skill.name.length})`,
+        value: skill.name,
+      });
+    }
+    // Check name pattern
+    if (!SkillValidation.NamePattern.test(skill.name)) {
+      errors.push({
+        field: 'name',
+        message:
+          'Name must start with a lowercase letter and contain only lowercase alphanumeric characters, underscores, and hyphens',
+        value: skill.name,
+      });
+    }
+  }
+
+  // Validate description
+  if (skill.description === undefined || skill.description === null) {
+    errors.push({
+      field: 'description',
+      message: 'Description is required',
+    });
+  } else if (typeof skill.description !== 'string') {
+    errors.push({
+      field: 'description',
+      message: 'Description must be a string',
+      value: skill.description,
+    });
+  } else if (skill.description.trim() === '') {
+    errors.push({
+      field: 'description',
+      message: 'Description cannot be empty',
+      value: skill.description,
+    });
+  } else if (skill.description.length > SkillValidation.MaxDescriptionLength) {
+    errors.push({
+      field: 'description',
+      message: `Description exceeds maximum length of ${SkillValidation.MaxDescriptionLength} characters (got ${skill.description.length})`,
+      value: skill.description,
+    });
+  }
+
+  // Validate body length (if present)
+  if (skill.body !== undefined && skill.body !== null) {
+    if (typeof skill.body !== 'string') {
+      errors.push({
+        field: 'body',
+        message: 'Body must be a string',
+        value: skill.body,
+      });
+    } else if (skill.body.length > SkillValidation.MaxBodyLength) {
+      errors.push({
+        field: 'body',
+        message: `Body exceeds maximum length of ${SkillValidation.MaxBodyLength} characters (got ${skill.body.length})`,
+        value: `[${skill.body.length} characters]`,
+      });
+    }
+  }
+
+  // Validate compatibility (if present)
+  if (skill.compatibility !== undefined && skill.compatibility !== null) {
+    const compatStr = JSON.stringify(skill.compatibility);
+    if (compatStr.length > SkillValidation.MaxCompatibilityLength) {
+      errors.push({
+        field: 'compatibility',
+        message: `Compatibility exceeds maximum length of ${SkillValidation.MaxCompatibilityLength} characters (got ${compatStr.length})`,
+        value: skill.compatibility,
+      });
+    }
+  }
+
+  // Validate allowedTools (if present)
+  if (skill.allowedTools !== undefined && skill.allowedTools !== null) {
+    if (!Array.isArray(skill.allowedTools)) {
+      errors.push({
+        field: 'allowedTools',
+        message: 'allowedTools must be an array',
+        value: skill.allowedTools,
+      });
+    } else {
+      for (let i = 0; i < skill.allowedTools.length; i++) {
+        if (typeof skill.allowedTools[i] !== 'string') {
+          errors.push({
+            field: `allowedTools[${i}]`,
+            message: 'Each tool in allowedTools must be a string',
+            value: skill.allowedTools[i],
+          });
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Checks if a skill configuration is valid.
+ *
+ * @param skill - Partial skill configuration to validate
+ * @returns true if valid, false otherwise
+ */
+export function isValidSkill(skill: Partial<SkillConfig>): boolean {
+  return validateSkill(skill).length === 0;
+}
 
 /**
  * Compatibility information for a skill.
