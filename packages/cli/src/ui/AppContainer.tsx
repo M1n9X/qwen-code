@@ -206,12 +206,9 @@ export const AppContainer = (props: AppContainerProps) => {
   const lastTitleRef = useRef<string | null>(null);
   const staticExtraHeight = 3;
 
-  // Initialize config (runs once on mount)
+  // Initialize config (already handled in gemini.tsx, so we just set state)
   useEffect(() => {
     (async () => {
-      // Note: the program will not work if this fails so let errors be
-      // handled by the global catch.
-      await config.initialize();
       setConfigInitialized(true);
 
       const resumedSessionData = config.getResumedSessionData();
