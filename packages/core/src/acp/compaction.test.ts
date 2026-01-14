@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Compaction from './compaction.js';
+import { SessionCompactor } from './compaction.js';
 import { type Message } from './types.js';
 import type { Model } from '../provider/types.js';
 
@@ -170,6 +171,214 @@ describe('SessionCompaction', () => {
       const resultIds = result.messages.map((m) => m.id);
       expect(resultIds).toContain('2');
       expect(resultIds.length).toBe(11); // 1 pinned + 10 recent
+    });
+  });
+});
+
+describe('SessionCompactor', () => {
+  const createMessage = (
+    role: Message['role'],
+    content: string,
+    id: string,
+  ): Message => ({
+    id,
+    role,
+    content,
+    timestamp: Date.now(),
+  });
+
+  describe('pinning', () => {
+    it('should pin and unpin messages', () => {
+      const compactor = new SessionCompactor();
+
+      compactor.pinMessage('msg-1', 'important');
+      compactor.pinMessage('msg-2');
+
+      expect(compactor.isMessagePinned('msg-1')).toBe(true);
+      expect(compactor.isMessagePinned('msg-2')).toBe(true);
+      expect(compactor.isMessagePinned('msg-3')).toBe(false);
+
+      const pinned = compactor.getPinnedMessages();
+      expect(pinned).toHaveLength(2);
+      expect(pinned[0].id).toBe('msg-1');
+      expect(pinned[0].reason).toBe('important');
+      expect(pinned[1].id).toBe('msg-2');
+      expect(pinned[1].reason).toBeUndefined();
+
+      compactor.unpinMessage('msg-1');
+      expect(compactor.isMessagePinned('msg-1')).toBe(false);
+      expect(compactor.getPinnedMessages()).toHaveLength(1);
+    });
+
+    it('should not duplicate pins', () => {
+      const compactor = new SessionCompactor();
+
+      compactor.pinMessage('msg-1', 'first');
+      compactor.pinMessage('msg-1', 'second');
+
+      expect(compactor.getPinnedMessages()).toHaveLength(1);
+      expect(compactor.getPinnedMessages()[0].reason).toBe('first');
+    });
+  });
+
+  describe('configuration', () => {
+    it('should use default configuration', () => {
+      const compactor = new SessionCompactor();
+      const messages = [createMessage('user', 'short', '1')];
+
+      expect(compactor.shouldCompact(messages)).toBe(false);
+    });
+
+    it('should allow configuration updates', () => {
+      const compactor = new SessionCompactor({ maxTokens: 10 });
+      // Use a much longer message to ensure it exceeds 10 tokens
+      const longText = 'word '.repeat(50);
+      const messages = [createMessage('user', longText, '1')];
+
+      expect(compactor.shouldCompact(messages)).toBe(true);
+
+      compactor.configure({ maxTokens: 100000 });
+      expect(compactor.shouldCompact(messages)).toBe(false);
+    });
+  });
+
+  describe('shouldCompact', () => {
+    it('should return false when under token limit', () => {
+      const compactor = new SessionCompactor({ maxTokens: 10000 });
+      const messages = [createMessage('user', 'short message', '1')];
+
+      expect(compactor.shouldCompact(messages)).toBe(false);
+    });
+
+    it('should return true when over token limit', () => {
+      const compactor = new SessionCompactor({ maxTokens: 10 });
+      const longText = 'word '.repeat(100);
+      const messages = [createMessage('user', longText, '1')];
+
+      expect(compactor.shouldCompact(messages)).toBe(true);
+    });
+  });
+
+  describe('countMessagesTokens', () => {
+    it('should count tokens in message content', () => {
+      const compactor = new SessionCompactor();
+      const messages = [
+        createMessage('user', 'hello world', '1'),
+        createMessage('assistant', 'hi there', '2'),
+      ];
+
+      const count = compactor.countMessagesTokens(messages);
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it('should count tokens in tool results', () => {
+      const compactor = new SessionCompactor();
+      const messages: Message[] = [
+        {
+          id: '1',
+          role: 'tool',
+          content: '',
+          timestamp: Date.now(),
+          toolResults: [{ toolCallId: 'tc-1', result: 'some result text' }],
+        },
+      ];
+
+      const count = compactor.countMessagesTokens(messages);
+      expect(count).toBeGreaterThan(0);
+    });
+  });
+
+  describe('plugin hooks', () => {
+    it('should invoke plugin hook during compaction', async () => {
+      const compactor = new SessionCompactor({
+        maxTokens: 10,
+        targetTokens: 5,
+      });
+      const hookFn = vi.fn();
+      compactor.setPluginHook(hookFn);
+
+      const messages = [createMessage('user', 'test message', '1')];
+      await compactor.compactMessages('session-1', messages);
+
+      expect(hookFn).toHaveBeenCalledTimes(1);
+      expect(hookFn.mock.calls[0][0]).toMatchObject({
+        sessionId: 'session-1',
+        messages: expect.any(Array),
+        pinnedIds: expect.any(Set),
+      });
+    });
+
+    it('should respect skipDefault from plugin hook', async () => {
+      const compactor = new SessionCompactor({
+        maxTokens: 10,
+        targetTokens: 5,
+      });
+      const hookFn = vi.fn(async (_input, output) => {
+        output.skipDefault = true;
+        output.customSummary = 'Plugin summary';
+      });
+      compactor.setPluginHook(hookFn);
+
+      const messages = [createMessage('user', 'test message', '1')];
+      const { result } = await compactor.compactMessages('session-1', messages);
+
+      expect(result.summary).toBe('Plugin summary');
+    });
+
+    it('should apply additionalPins from plugin hook', async () => {
+      const compactor = new SessionCompactor({
+        maxTokens: 10,
+        targetTokens: 5,
+      });
+      const hookFn = vi.fn(async (_input, output) => {
+        output.additionalPins = ['msg-extra'];
+        output.skipDefault = true;
+      });
+      compactor.setPluginHook(hookFn);
+
+      const messages = [createMessage('user', 'test', '1')];
+      const { result } = await compactor.compactMessages('session-1', messages);
+
+      expect(result.pinnedMessages).toContain('msg-extra');
+    });
+  });
+
+  describe('compactMessages', () => {
+    it('should return compaction result with metrics', async () => {
+      const compactor = new SessionCompactor({
+        maxTokens: 100000,
+        targetTokens: 80000,
+      });
+      const messages = [
+        createMessage('user', 'hello', '1'),
+        createMessage('assistant', 'hi', '2'),
+      ];
+
+      const { messages: resultMessages, result } =
+        await compactor.compactMessages('session-1', messages);
+
+      expect(resultMessages).toHaveLength(2);
+      expect(result.originalTokens).toBeGreaterThan(0);
+      expect(result.compactedTokens).toBeGreaterThan(0);
+      expect(result.removedMessages).toBe(0);
+      expect(result.pinnedMessages).toEqual([]);
+    });
+
+    it('should preserve pinned messages during compaction', async () => {
+      const compactor = new SessionCompactor({
+        maxTokens: 100,
+        targetTokens: 50,
+      });
+      compactor.pinMessage('2', 'important');
+
+      const longText = 'word '.repeat(500);
+      const messages = Array.from({ length: 15 }, (_, i) =>
+        createMessage('user', i === 2 ? longText : `msg ${i}`, `${i}`),
+      );
+
+      const { result } = await compactor.compactMessages('session-1', messages);
+
+      expect(result.pinnedMessages).toContain('2');
     });
   });
 });

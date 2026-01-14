@@ -22,7 +22,32 @@ import {
 import { randomUUID } from 'crypto';
 
 import { ACPSessionManager } from './session.js';
-import type { ACPConfig, Message } from './types.js';
+import {
+  type ACPConfig,
+  type Message,
+  type ACPState,
+  type ACPCapabilities,
+  type AgentState,
+  ACPStateMachine,
+} from './types.js';
+
+/**
+ * Chunk types for streaming prompt responses.
+ */
+export type PromptChunk =
+  | { type: 'text'; text: string }
+  | {
+      type: 'tool_call';
+      toolCallId: string;
+      toolName: string;
+      arguments: Record<string, unknown>;
+    }
+  | {
+      type: 'tool_result';
+      toolCallId: string;
+      result: string;
+      isError?: boolean;
+    };
 
 // Simple logger fallback if needed
 const log = {
@@ -33,50 +58,99 @@ const log = {
 
 export async function init(config: ACPConfig) {
   return {
-    create: (connection: AgentSideConnection) => new ACPAgent(connection, config),
+    create: (connection: AgentSideConnection) =>
+      new ACPAgent(connection, config),
   };
 }
 
 export class ACPAgent implements ACPAgentInterface {
   private connection: AgentSideConnection;
   private config: ACPConfig;
+  private stateMachine: ACPStateMachine;
+  private capabilities: ACPCapabilities;
 
   constructor(connection: AgentSideConnection, config: ACPConfig) {
     this.connection = connection;
     this.config = config;
+    this.stateMachine = new ACPStateMachine();
+    this.capabilities = {
+      tools: [],
+      streaming: true,
+      multiTurn: true,
+      contextWindow: 128000, // Default, will be updated based on model
+    };
   }
 
   // Registry of active sessions
   private sessions = new Map<string, ACPSessionManager>();
 
+  /**
+   * Gets the current state of the ACP agent.
+   */
+  getState(): ACPState {
+    return this.stateMachine.currentState;
+  }
+
+  /**
+   * Gets the capabilities of the ACP agent.
+   */
+  getCapabilities(): ACPCapabilities {
+    return { ...this.capabilities };
+  }
+
+  /**
+   * Checks if the agent is ready to process prompts.
+   */
+  isReady(): boolean {
+    return this.stateMachine.isReady();
+  }
+
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     log.info('initialize', { protocolVersion: params.protocolVersion });
 
-    const authMethod: AuthMethod = {
-      description: 'No authentication required',
-      name: 'Default',
-      id: 'default-auth',
-    };
+    // Transition state machine
+    if (this.stateMachine.currentState === 'uninitialized') {
+      this.stateMachine.transition('initialize');
+    }
 
-    return {
-      protocolVersion: 1,
-      agentCapabilities: {
-        loadSession: true,
-        mcpCapabilities: {
-          http: true,
-          sse: true,
+    try {
+      // Update capabilities based on available tools
+      const toolRegistry = this.config.config.getToolRegistry();
+      const tools = toolRegistry.getAllTools();
+      this.capabilities.tools = tools.map((t) => t.name);
+
+      const authMethod: AuthMethod = {
+        description: 'No authentication required',
+        name: 'Default',
+        id: 'default-auth',
+      };
+
+      // Transition to ready state
+      this.stateMachine.transition('initialized');
+
+      return {
+        protocolVersion: 1,
+        agentCapabilities: {
+          loadSession: true,
+          mcpCapabilities: {
+            http: true,
+            sse: true,
+          },
+          promptCapabilities: {
+            embeddedContext: true,
+            image: true,
+          },
         },
-        promptCapabilities: {
-          embeddedContext: true,
-          image: true,
+        authMethods: [authMethod],
+        agentInfo: {
+          name: 'Qwen Code',
+          version: '0.7.0',
         },
-      },
-      authMethods: [authMethod],
-      agentInfo: {
-        name: 'Qwen Code',
-        version: '0.7.0',
-      },
-    };
+      };
+    } catch (err) {
+      this.stateMachine.transition('error');
+      throw err;
+    }
   }
 
   async authenticate(_params: AuthenticateRequest) {
@@ -124,24 +198,184 @@ export class ACPAgent implements ACPAgentInterface {
     const sessionManager = this.sessions.get(params.sessionId);
     if (!sessionManager) throw new Error('Session not found');
 
-    // This triggers the loop in sessionManager
-    // Note: ACPSessionManager currently doesn't support streaming, so we wait for completion
-    // But we have event listeners setup to relay messages as they are created.
-    // Extract text from prompt parts
-    const text = params.prompt
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((p: any) => p.type === 'text')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((p: any) => p.text)
-      .join('\n');
+    // Transition to processing state if ready
+    if (this.stateMachine.isReady()) {
+      this.stateMachine.transition('prompt');
+    }
 
-    await sessionManager.addUserMessage(text);
+    try {
+      // Extract text from prompt parts
+      const text = params.prompt
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((p: any) => p.type === 'text')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((p: any) => p.text)
+        .join('\n');
+
+      await sessionManager.addUserMessage(text);
+
+      // Transition back to ready state
+      if (this.stateMachine.isProcessing()) {
+        this.stateMachine.transition('complete');
+      }
+    } catch (err) {
+      if (this.stateMachine.canTransition('error')) {
+        this.stateMachine.transition('error');
+      }
+      throw err;
+    }
   }
 
-  private setupEventSubscriptions(
+  /**
+   * Streaming prompt handler that yields chunks as they are generated.
+   * This is an AsyncGenerator version of prompt() for streaming responses.
+   *
+   * @param params - The prompt request parameters
+   * @yields PromptChunk objects containing text or tool call updates
+   */
+  async *promptStream(params: PromptRequest): AsyncGenerator<PromptChunk> {
+    const sessionManager = this.sessions.get(params.sessionId);
+    if (!sessionManager) throw new Error('Session not found');
+
+    // Transition to processing state if ready
+    if (this.stateMachine.isReady()) {
+      this.stateMachine.transition('prompt');
+    }
+
+    // Create a queue to collect chunks from event handlers
+    const chunkQueue: Array<PromptChunk | { done: true } | { error: Error }> =
+      [];
+    let resolveWait: (() => void) | null = null;
+
+    const pushChunk = (
+      chunk: PromptChunk | { done: true } | { error: Error },
+    ) => {
+      chunkQueue.push(chunk);
+      if (resolveWait) {
+        resolveWait();
+        resolveWait = null;
+      }
+    };
+
+    // Set up temporary event listeners for streaming
+    const onMessage = (message: Message) => {
+      if (message.role === 'assistant') {
+        if (message.content) {
+          pushChunk({ type: 'text', text: message.content });
+        }
+        if (message.toolCalls) {
+          for (const tc of message.toolCalls) {
+            pushChunk({
+              type: 'tool_call',
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+            });
+          }
+        }
+      } else if (message.role === 'tool' && message.toolResults) {
+        for (const tr of message.toolResults) {
+          pushChunk({
+            type: 'tool_result',
+            toolCallId: tr.toolCallId,
+            result: String(tr.result),
+            isError: tr.isError,
+          });
+        }
+      }
+    };
+
+    const onStateChanged = (state: AgentState) => {
+      if (state === 'completed') {
+        pushChunk({ done: true });
+      } else if (state === 'error') {
+        pushChunk({ error: new Error('Session processing failed') });
+      }
+    };
+
+    const onError = (err: Error) => {
+      pushChunk({ error: err });
+    };
+
+    sessionManager.on('message.created', onMessage);
+    sessionManager.on('state.changed', onStateChanged);
+    sessionManager.on('error', onError);
+
+    try {
+      // Extract text from prompt parts
+      const text = params.prompt
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((p: any) => p.type === 'text')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((p: any) => p.text)
+        .join('\n');
+
+      // Start processing (don't await - we'll yield chunks as they come)
+      const processPromise = sessionManager.addUserMessage(text);
+
+      // Yield chunks as they arrive
+      while (true) {
+        if (chunkQueue.length === 0) {
+          // Wait for next chunk
+          await new Promise<void>((resolve) => {
+            resolveWait = resolve;
+          });
+        }
+
+        const chunk = chunkQueue.shift();
+        if (!chunk) continue;
+
+        if ('done' in chunk) {
+          break;
+        }
+        if ('error' in chunk) {
+          throw chunk.error;
+        }
+
+        yield chunk;
+      }
+
+      // Ensure processing is complete
+      await processPromise;
+
+      // Transition back to ready state
+      if (this.stateMachine.isProcessing()) {
+        this.stateMachine.transition('complete');
+      }
+    } catch (err) {
+      if (this.stateMachine.canTransition('error')) {
+        this.stateMachine.transition('error');
+      }
+      throw err;
+    } finally {
+      // Clean up listeners
+      sessionManager.off('message.created', onMessage);
+      sessionManager.off('state.changed', onStateChanged);
+      sessionManager.off('error', onError);
+    }
+  }
+
+  /**
+   * Processes a message through the agent pipeline.
+   * This is a lower-level method for direct message processing.
+   *
+   * @param sessionId - The session ID
+   * @param message - The message to process
+   */
+  async processMessage(sessionId: string, message: Message): Promise<void> {
+    const sessionManager = this.sessions.get(sessionId);
+    if (!sessionManager) throw new Error('Session not found');
+
+    if (message.role === 'user') {
+      await sessionManager.addUserMessage(message.content);
+    }
+    // Other message types can be handled as needed
+  }
+
+  setupEventSubscriptions(
     sessionManager: ACPSessionManager,
     sessionId: string,
-  ) {
+  ): void {
     sessionManager.on('message.created', async (message: Message) => {
       log.debug('message_created', message);
 
@@ -161,6 +395,11 @@ export class ACPAgent implements ACPAgentInterface {
 
         // Handle tool calls
         if (message.toolCalls) {
+          // Transition to waiting_for_tool state
+          if (this.stateMachine.canTransition('tool_call')) {
+            this.stateMachine.transition('tool_call');
+          }
+
           for (const tc of message.toolCalls) {
             await this.connection
               .sessionUpdate({
@@ -184,6 +423,11 @@ export class ACPAgent implements ACPAgentInterface {
           }
         }
       } else if (message.role === 'tool') {
+        // Transition back to processing after tool result
+        if (this.stateMachine.canTransition('tool_result')) {
+          this.stateMachine.transition('tool_result');
+        }
+
         // Send tool results
         if (message.toolResults) {
           for (const tr of message.toolResults) {
@@ -251,5 +495,21 @@ export class ACPAgent implements ACPAgentInterface {
       },
       _meta: {},
     };
+  }
+
+  /**
+   * Shuts down the agent gracefully.
+   */
+  async shutdown(): Promise<void> {
+    if (this.stateMachine.canTransition('shutdown')) {
+      this.stateMachine.transition('shutdown');
+    }
+
+    // Clean up all sessions
+    for (const [sessionId, session] of this.sessions) {
+      log.info('closing_session', { sessionId });
+      session.removeAllListeners();
+    }
+    this.sessions.clear();
   }
 }
