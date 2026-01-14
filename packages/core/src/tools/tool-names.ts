@@ -25,6 +25,7 @@ export const ToolNames = {
   WEB_FETCH: 'web_fetch',
   WEB_SEARCH: 'web_search',
   LS: 'list_directory',
+  MULTI_EDIT: 'multi_edit',
 } as const;
 
 /**
@@ -48,6 +49,7 @@ export const ToolDisplayNames = {
   WEB_FETCH: 'WebFetch',
   WEB_SEARCH: 'WebSearch',
   LS: 'ListFiles',
+  MULTI_EDIT: 'MultiEdit',
 } as const;
 
 // Migration from old tool names to new tool names

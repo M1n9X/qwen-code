@@ -46,6 +46,7 @@ import { ExitPlanModeTool } from '../tools/exitPlanMode.js';
 import { GlobTool } from '../tools/glob.js';
 import { GrepTool } from '../tools/grep.js';
 import { LSTool } from '../tools/ls.js';
+import { MultiEditTool } from '../tools/multiedit.js';
 import type { SendSdkMcpMessage } from '../tools/mcp-client.js';
 import { MemoryTool, setGeminiMdFilename } from '../tools/memoryTool.js';
 import { ReadFileTool } from '../tools/read-file.js';
@@ -1523,7 +1524,10 @@ export class Config {
     } else {
       registerCoreTool(EditTool, this);
     }
+
+// ... inside createToolRegistry
     registerCoreTool(WriteFileTool, this);
+    registerCoreTool(MultiEditTool, this);
     registerCoreTool(ReadManyFilesTool, this);
     registerCoreTool(ShellTool, this);
     registerCoreTool(MemoryTool);

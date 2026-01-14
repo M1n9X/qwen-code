@@ -70,6 +70,7 @@
     "undici": "^6.22.0",
     "uuid": "^9.0.1",
     "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageserver-protocol": "^3.17.5",
     "vscode-languageserver-types": "^3.17.5",
     "ws": "^8.18.0"
   },

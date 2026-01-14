@@ -182,6 +182,16 @@ export class SkillManager {
       errors.push('"description" cannot be empty');
     }
 
+    // Validate skill name with regex (agentskills.io standard)
+    const nameRegex = /^[a-zA-Z0-9_-]+$/;
+    if (!nameRegex.test(config.name!)) {
+      errors.push(
+        '"name" must only contain alphanumeric characters, underscores, and hyphens'
+      );
+    }
+
+
+
     // Validate allowedTools if present
     if (config.allowedTools !== undefined) {
       if (!Array.isArray(config.allowedTools)) {
@@ -207,6 +217,36 @@ export class SkillManager {
       warnings,
     };
   }
+
+  /**
+   * Generates the XML representation of a skill for prompt injection.
+   * Matches the efficient format used by crush.
+   *
+   * @param skillCmd - The skill configuration object
+   * @returns XML output
+   */
+  public getSkillAsXml(skillCmd: SkillConfig): string {
+    let xml = `<skill name="${skillCmd.name}">\n`;
+    xml += `  <description>${skillCmd.description}</description>\n`;
+    if (skillCmd.allowedTools && skillCmd.allowedTools.length > 0) {
+      xml += `  <tools>\n`;
+      for (const tool of skillCmd.allowedTools) {
+        xml += `    <tool>${tool}</tool>\n`;
+      }
+      xml += `  </tools>\n`;
+    }
+    xml += `  <instructions>\n`;
+    // Indent body lines for better readability in XML
+    const bodyLines = skillCmd.body.split('\n');
+    for (const line of bodyLines) {
+      xml += `    ${line}\n`;
+    }
+    xml += `  </instructions>\n`;
+    xml += `</skill>`;
+    return xml;
+  }
+
+
 
   /**
    * Refreshes the skills cache by loading all skills from disk.

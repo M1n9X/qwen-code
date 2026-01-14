@@ -14,12 +14,15 @@ export type {
   TextDocumentIdentifier,
   TextDocumentItem,
   VersionedTextDocumentIdentifier,
-  TextDocumentContentChangeEvent,
   WorkspaceFolder,
+} from 'vscode-languageserver-types';
+
+export type {
   InitializeParams,
   InitializeResult,
   ServerCapabilities,
-} from 'vscode-languageserver-types';
+  TextDocumentContentChangeEvent,
+} from 'vscode-languageserver-protocol';
 
 export interface LSPConfiguration {
   serverID: string;
