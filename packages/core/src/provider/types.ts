@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { LanguageModel } from 'ai';
+import type { LanguageModel } from 'ai';
 
 export interface Model {
   id: string;
@@ -18,12 +18,12 @@ export interface Provider {
   id: string;
   name: string;
   models: Record<string, Model>;
-  
+
   /**
    * Returns a Vercel AI SDK compatible model instance
    */
   languageModel(modelId: string): LanguageModel;
-  
+
   /**
    * Validates if the provider is configured correctly (e.g. API keys present)
    */

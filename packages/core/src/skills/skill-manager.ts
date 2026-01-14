@@ -186,11 +186,9 @@ export class SkillManager {
     const nameRegex = /^[a-zA-Z0-9_-]+$/;
     if (!nameRegex.test(config.name!)) {
       errors.push(
-        '"name" must only contain alphanumeric characters, underscores, and hyphens'
+        '"name" must only contain alphanumeric characters, underscores, and hyphens',
       );
     }
-
-
 
     // Validate allowedTools if present
     if (config.allowedTools !== undefined) {
@@ -225,7 +223,7 @@ export class SkillManager {
    * @param skillCmd - The skill configuration object
    * @returns XML output
    */
-  public getSkillAsXml(skillCmd: SkillConfig): string {
+  getSkillAsXml(skillCmd: SkillConfig): string {
     let xml = `<skill name="${skillCmd.name}">\n`;
     xml += `  <description>${skillCmd.description}</description>\n`;
     if (skillCmd.allowedTools && skillCmd.allowedTools.length > 0) {
@@ -245,8 +243,6 @@ export class SkillManager {
     xml += `</skill>`;
     return xml;
   }
-
-
 
   /**
    * Refreshes the skills cache by loading all skills from disk.

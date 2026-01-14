@@ -7,13 +7,14 @@
 import * as path from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { EventEmitter } from 'events';
+
 import {
   createMessageConnection,
   StreamMessageReader,
   StreamMessageWriter,
-  MessageConnection,
-} from 'vscode-jsonrpc/node';
-import { LSPServer } from './server.js';
+} from 'vscode-jsonrpc/node.js';
+import type { MessageConnection } from 'vscode-jsonrpc/node.js';
+import type { LSPServerHandle } from './server.js';
 import type { Diagnostic, LSPConfiguration } from './types.js';
 
 export class LSPClient extends EventEmitter {
@@ -23,8 +24,8 @@ export class LSPClient extends EventEmitter {
   private root: string;
 
   constructor(
-    private server: LSPServer.Handle,
-    private config: LSPConfiguration
+    private server: LSPServerHandle,
+    config: LSPConfiguration,
   ) {
     super();
     this.serverID = config.serverID;
@@ -32,33 +33,36 @@ export class LSPClient extends EventEmitter {
 
     this.connection = createMessageConnection(
       new StreamMessageReader(this.server.process.stdout!),
-      new StreamMessageWriter(this.server.process.stdin!)
+      new StreamMessageWriter(this.server.process.stdin!),
     );
 
     this.setupNotificationHandlers();
   }
 
   private setupNotificationHandlers() {
-    this.connection.onNotification('textDocument/publishDiagnostics', (params: { uri: string; diagnostics: Diagnostic[] }) => {
-      const filePath = fileURLToPath(params.uri);
-      this.diagnostics.set(filePath, params.diagnostics);
-      this.emit('diagnostics', {
-        serverID: this.serverID,
-        path: filePath,
-        diagnostics: params.diagnostics,
-      });
-    });
+    this.connection.onNotification(
+      'textDocument/publishDiagnostics',
+      (params: { uri: string; diagnostics: Diagnostic[] }) => {
+        const filePath = fileURLToPath(params.uri);
+        this.diagnostics.set(filePath, params.diagnostics);
+        this.emit('diagnostics', {
+          serverID: this.serverID,
+          path: filePath,
+          diagnostics: params.diagnostics,
+        });
+      },
+    );
 
     this.connection.onRequest('window/workDoneProgress/create', () => null);
-    
-    this.connection.onRequest('workspace/configuration', async () => {
-      return [this.server.initialization ?? {}];
-    });
+
+    this.connection.onRequest('workspace/configuration', async () => [
+      this.server.initialization ?? {},
+    ]);
 
     this.connection.listen();
   }
 
-  public async initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     const rootUri = pathToFileURL(this.root).href;
 
     await this.connection.sendRequest('initialize', {
@@ -87,7 +91,7 @@ export class LSPClient extends EventEmitter {
     await this.connection.sendNotification('initialized', {});
   }
 
-  public async open(filePath: string, content: string): Promise<void> {
+  async open(filePath: string, content: string): Promise<void> {
     const absPath = path.resolve(this.root, filePath);
     const uri = pathToFileURL(absPath).href;
 
@@ -101,14 +105,14 @@ export class LSPClient extends EventEmitter {
     });
   }
 
-  public async shutdown(): Promise<void> {
+  async shutdown(): Promise<void> {
     await this.connection.sendRequest('shutdown');
     await this.connection.sendNotification('exit');
     this.connection.dispose();
     this.server.process.kill();
   }
 
-  public getDiagnostics(filePath: string): Diagnostic[] | undefined {
-     return this.diagnostics.get(path.resolve(this.root, filePath));
+  getDiagnostics(filePath: string): Diagnostic[] | undefined {
+    return this.diagnostics.get(path.resolve(this.root, filePath));
   }
 }

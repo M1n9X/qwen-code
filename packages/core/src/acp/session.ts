@@ -5,15 +5,14 @@
  */
 
 import { EventEmitter } from 'events';
-import { AgentState, Message, ToolCall, ToolResult } from './types.js';
-import { ProviderRegistry } from '../provider/registry.js';
-import { Provider } from '../provider/types.js';
+import type { AgentState, Message } from './types.js';
+import type { ProviderRegistry } from '../provider/registry.js';
 
 export class ACPSessionManager extends EventEmitter {
-  public id: string;
-  public state: AgentState = 'pending';
-  public messages: Message[] = [];
-  
+  id: string;
+  state: AgentState = 'pending';
+  messages: Message[] = [];
+
   private providerRegistry: ProviderRegistry;
   private currentProviderId?: string;
   private currentModelId?: string;
@@ -24,16 +23,17 @@ export class ACPSessionManager extends EventEmitter {
     this.providerRegistry = providerRegistry;
   }
 
-  public setModel(providerId: string, modelId: string) {
+  setModel(providerId: string, modelId: string) {
     const provider = this.providerRegistry.get(providerId);
     if (!provider) throw new Error(`Provider ${providerId} not found`);
-    if (!provider.models[modelId]) throw new Error(`Model ${modelId} not found in provider ${providerId}`);
-    
+    if (!provider.models[modelId])
+      throw new Error(`Model ${modelId} not found in provider ${providerId}`);
+
     this.currentProviderId = providerId;
     this.currentModelId = modelId;
   }
 
-  public async addUserMessage(content: string): Promise<void> {
+  async addUserMessage(content: string): Promise<void> {
     const message: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -42,7 +42,7 @@ export class ACPSessionManager extends EventEmitter {
     };
     this.messages.push(message);
     this.emit('message.created', message);
-    
+
     // Transition to running state to process the message
     await this.run();
   }
@@ -57,13 +57,13 @@ export class ACPSessionManager extends EventEmitter {
         throw new Error('No model configured for session');
       }
 
-      const provider = this.providerRegistry.get(this.currentProviderId)!;
+      // const provider = this.providerRegistry.get(this.currentProviderId)!;
       // In a real implementation, we would call the provider here to stream the response
       // For now, we stub this out as part of the refactor
-      
+
       // TODO: Implement actual LLM call loop with tool handling
       // const response = await provider.languageModel(this.currentModelId).doGenerate(...)
-      
+
       this.state = 'completed';
       this.emit('state.changed', this.state);
     } catch (error) {

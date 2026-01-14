@@ -36,7 +36,9 @@ import type { Config } from '../../config/config.js';
 import { InstallationManager } from '../../utils/installationManager.js';
 import { safeJsonStringify } from '../../utils/safeJsonStringify.js';
 import { FixedDeque } from 'mnemonist';
-import { GIT_COMMIT_INFO, CLI_VERSION } from '../../generated/git-commit.js';
+// import { GIT_COMMIT_INFO, CLI_VERSION } from '../../generated/git-commit.js';
+const GIT_COMMIT_INFO = '0000000';
+const CLI_VERSION = '0.0.0';
 import {
   IDE_DEFINITIONS,
   detectIdeFromEnv,
