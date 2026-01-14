@@ -414,8 +414,14 @@ export class LSPManager extends EventEmitter {
 }
 
 // Re-export types and functions
-export type { Diagnostic } from './client.js';
-export { formatDiagnostic } from './client.js';
+export type {
+  Diagnostic,
+  LSPLocation,
+  Position,
+  HoverResult,
+  LSPClientConfig,
+} from './client.js';
+export { formatDiagnostic, LSPClientConfigSchema } from './client.js';
 export type { LSPServerInfo, LSPServerHandle } from './server.js';
 export { LANGUAGE_EXTENSIONS, getLanguageId } from './language.js';
 export type { LSPServerRegistry } from './registry.js';
