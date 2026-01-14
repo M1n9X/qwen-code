@@ -19,6 +19,7 @@ import { randomUUID } from 'crypto';
 import type { AgentState, Message, ToolResult } from './types.js';
 import type { Config } from '../config/config.js';
 import type { AnyDeclarativeTool } from '../tools/tools.js';
+import * as SessionCompaction from './compaction.js';
 
 export class ACPSessionManager extends EventEmitter {
   id: string;
@@ -83,6 +84,49 @@ export class ACPSessionManager extends EventEmitter {
       while (stepCount < MAX_STEPS) {
         stepCount++;
         const coreMessages = this.convertHistoryToCoreMessages();
+
+        // Check for context overflow
+        if (
+          this.currentModelId &&
+          provider.models &&
+          provider.models[this.currentModelId]
+        ) {
+          const modelDef = provider.models[this.currentModelId];
+          // Calculate input tokens roughly
+          let inputTokens = 0;
+          for (const m of this.messages) {
+            inputTokens += m.content
+              ? SessionCompaction.countTokens(m.content)
+              : 0;
+            if (m.toolCalls) {
+              for (const tc of m.toolCalls) {
+                inputTokens += SessionCompaction.countTokens(
+                  JSON.stringify(tc.arguments),
+                );
+              }
+            }
+            if (m.toolResults) {
+              for (const tr of m.toolResults) {
+                inputTokens += SessionCompaction.countTokens(String(tr.result));
+              }
+            }
+          }
+
+          if (
+            SessionCompaction.isOverflow({
+              tokens: { input: inputTokens, output: 0 },
+              model: modelDef,
+            })
+          ) {
+            // Prune
+            await SessionCompaction.prune(this.messages);
+            // Re-convert messages after pruning (if content changed)
+            // But pruning modifies messages in place in our implementation?
+            // Yes, we implemented inplace modification for now.
+            // So we just continue.
+            // TODO: If still overflow, compact.
+          }
+        }
 
         const { text, toolCalls } = await generateText({
           model: languageModel,
