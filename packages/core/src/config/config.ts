@@ -115,6 +115,10 @@ import { ProviderRegistry } from '../provider/registry.js';
 import { OpenAIProvider } from '../provider/openai.js';
 import { AnthropicProvider } from '../provider/anthropic.js';
 import { LocalProvider } from '../provider/local.js';
+import { AzureProvider } from '../provider/azure.js';
+import { BedrockProvider } from '../provider/bedrock.js';
+import { GoogleProvider } from '../provider/google.js';
+import { OpenRouterProvider } from '../provider/openrouter.js';
 
 // Re-export types
 export type { AnyToolInvocation, FileFilteringOptions, MCPOAuthConfig };
@@ -706,6 +710,12 @@ export class Config {
     if (anthropicKey) {
       this.providerRegistry.register(new AnthropicProvider(anthropicKey));
     }
+
+    // Register other providers (they handle their own env var checks)
+    this.providerRegistry.register(new AzureProvider());
+    this.providerRegistry.register(new BedrockProvider());
+    this.providerRegistry.register(new GoogleProvider());
+    this.providerRegistry.register(new OpenRouterProvider());
 
     // Always register local provider
     this.providerRegistry.register(new LocalProvider());

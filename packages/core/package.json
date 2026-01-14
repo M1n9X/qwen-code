@@ -23,12 +23,14 @@
     "scripts/postinstall.js"
   ],
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.16",
     "@ai-sdk/anthropic": "^3.0.12",
+    "@ai-sdk/azure": "^3.0.9",
+    "@ai-sdk/google": "^3.0.7",
     "@ai-sdk/openai": "^3.0.9",
     "@anthropic-ai/sdk": "^0.36.1",
     "@google/genai": "1.30.0",
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "@qwen-code/plugin": "^0.7.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-logs-otlp-grpc": "^0.203.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.203.0",
@@ -38,6 +40,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
     "@opentelemetry/instrumentation-http": "^0.203.0",
     "@opentelemetry/sdk-node": "^0.203.0",
+    "@qwen-code/plugin": "^0.7.0",
     "@types/html-to-text": "^9.0.4",
     "@xterm/headless": "5.5.0",
     "ai": "^6.0.33",
