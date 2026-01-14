@@ -14,7 +14,7 @@ import {
   MessageConnection,
 } from 'vscode-jsonrpc/node';
 import { LSPServer } from './server.js';
-import { Diagnostic, LSPConfiguration } from './types.js';
+import type { Diagnostic, LSPConfiguration } from './types.js';
 
 export class LSPClient extends EventEmitter {
   private connection: MessageConnection;
@@ -39,7 +39,7 @@ export class LSPClient extends EventEmitter {
   }
 
   private setupNotificationHandlers() {
-    this.connection.onNotification('textDocument/publishDiagnostics', (params) => {
+    this.connection.onNotification('textDocument/publishDiagnostics', (params: { uri: string; diagnostics: Diagnostic[] }) => {
       const filePath = fileURLToPath(params.uri);
       this.diagnostics.set(filePath, params.diagnostics);
       this.emit('diagnostics', {
