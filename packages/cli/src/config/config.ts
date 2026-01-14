@@ -764,7 +764,7 @@ export async function loadCliConfig(
     fileFiltering,
   );
 
-  let mcpServers = mergeMcpServers(settings, activeExtensions);
+  let mcpServers = await mergeMcpServers(settings, activeExtensions);
   const question = argv.promptInteractive || argv.prompt || '';
   const inputFormat: InputFormat =
     (argv.inputFormat as InputFormat | undefined) ?? InputFormat.TEXT;
@@ -1116,8 +1116,20 @@ function allowedMcpServers(
   return mcpServers;
 }
 
-function mergeMcpServers(settings: Settings, extensions: Extension[]) {
+import { McpManager } from '@qwen-code/qwen-code-core';
+
+async function mergeMcpServers(settings: Settings, extensions: Extension[]) {
   const mcpServers = { ...(settings.mcpServers || {}) };
+
+  // Load local mcp.json config
+  try {
+    const mcpManager = new McpManager(Storage.getGlobalQwenDir());
+    const mcpConfig = await mcpManager.loadConfig();
+    Object.assign(mcpServers, mcpConfig.mcpServers);
+  } catch (e) {
+    logger.warn('Failed to load mcp.json:', e);
+  }
+
   for (const extension of extensions) {
     Object.entries(extension.config.mcpServers || {}).forEach(
       ([key, server]) => {

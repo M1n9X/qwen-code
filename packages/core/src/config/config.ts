@@ -110,6 +110,12 @@ import {
   type AvailableModel,
 } from '../models/index.js';
 
+// Provider Layer
+import { ProviderRegistry } from '../provider/registry.js';
+import { OpenAIProvider } from '../provider/openai.js';
+import { AnthropicProvider } from '../provider/anthropic.js';
+import { LocalProvider } from '../provider/local.js';
+
 // Re-export types
 export type { AnyToolInvocation, FileFilteringOptions, MCPOAuthConfig };
 export {
@@ -404,6 +410,7 @@ export class Config {
   private sessionData?: ResumedSessionData;
   private toolRegistry!: ToolRegistry;
   private promptRegistry!: PromptRegistry;
+  private providerRegistry!: ProviderRegistry;
   private subagentManager!: SubagentManager;
   private skillManager!: SkillManager;
   private fileSystemService: FileSystemService;
@@ -685,6 +692,24 @@ export class Config {
       options?.sendSdkMcpMessage,
     );
 
+    // Initialize Provider Registry
+    this.providerRegistry = new ProviderRegistry();
+
+    // Register default providers
+    // TODO: Load API keys from secure storage or process.env safely
+    const openAIKey = process.env['OPENAI_API_KEY'];
+    if (openAIKey) {
+      this.providerRegistry.register(new OpenAIProvider(openAIKey));
+    }
+
+    const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+    if (anthropicKey) {
+      this.providerRegistry.register(new AnthropicProvider(anthropicKey));
+    }
+
+    // Always register local provider
+    this.providerRegistry.register(new LocalProvider());
+
     await this.geminiClient.initialize();
 
     logStartSession(this, new StartSessionEvent(this));
@@ -769,6 +794,20 @@ export class Config {
       }
     }
     return this.baseLlmClient;
+  }
+
+  getProviderRegistry(): ProviderRegistry {
+    if (!this.providerRegistry) {
+      throw new Error('ProviderRegistry not initialized');
+    }
+    return this.providerRegistry;
+  }
+
+  getToolRegistry(): ToolRegistry {
+    if (!this.toolRegistry) {
+      throw new Error('ToolRegistry not initialized');
+    }
+    return this.toolRegistry;
   }
 
   getSessionId(): string {
@@ -973,10 +1012,6 @@ export class Config {
 
   getWorkspaceContext(): WorkspaceContext {
     return this.workspaceContext;
-  }
-
-  getToolRegistry(): ToolRegistry {
-    return this.toolRegistry;
   }
 
   getPromptRegistry(): PromptRegistry {
@@ -1525,7 +1560,7 @@ export class Config {
       registerCoreTool(EditTool, this);
     }
 
-// ... inside createToolRegistry
+    // ... inside createToolRegistry
     registerCoreTool(WriteFileTool, this);
     registerCoreTool(MultiEditTool, this);
     registerCoreTool(ReadManyFilesTool, this);

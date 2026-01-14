@@ -5,29 +5,40 @@
  */
 
 import { EventEmitter } from 'events';
-import type { AgentState, Message } from './types.js';
-import type { ProviderRegistry } from '../provider/registry.js';
+import {
+  generateText,
+  type ModelMessage,
+  type Tool,
+  tool,
+  jsonSchema,
+  type JSONSchema7,
+  type TextPart,
+  type ToolCallPart,
+} from 'ai';
+import { randomUUID } from 'crypto';
+import type { AgentState, Message, ToolResult } from './types.js';
+import type { Config } from '../config/config.js';
+import type { AnyDeclarativeTool } from '../tools/tools.js';
 
 export class ACPSessionManager extends EventEmitter {
   id: string;
   state: AgentState = 'pending';
   messages: Message[] = [];
 
-  private providerRegistry: ProviderRegistry;
+  private config: Config;
   private currentProviderId?: string;
   private currentModelId?: string;
 
-  constructor(id: string, providerRegistry: ProviderRegistry) {
+  constructor(id: string, config: Config) {
     super();
     this.id = id;
-    this.providerRegistry = providerRegistry;
+    this.config = config;
   }
 
   setModel(providerId: string, modelId: string) {
-    const provider = this.providerRegistry.get(providerId);
+    const registry = this.config.getProviderRegistry();
+    const provider = registry.get(providerId);
     if (!provider) throw new Error(`Provider ${providerId} not found`);
-    if (!provider.models[modelId])
-      throw new Error(`Model ${modelId} not found in provider ${providerId}`);
 
     this.currentProviderId = providerId;
     this.currentModelId = modelId;
@@ -35,7 +46,7 @@ export class ACPSessionManager extends EventEmitter {
 
   async addUserMessage(content: string): Promise<void> {
     const message: Message = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       role: 'user',
       content,
       timestamp: Date.now(),
@@ -43,7 +54,6 @@ export class ACPSessionManager extends EventEmitter {
     this.messages.push(message);
     this.emit('message.created', message);
 
-    // Transition to running state to process the message
     await this.run();
   }
 
@@ -52,24 +62,201 @@ export class ACPSessionManager extends EventEmitter {
     this.state = 'running';
     this.emit('state.changed', this.state);
 
+    const MAX_STEPS = 10;
+    let stepCount = 0;
+
     try {
       if (!this.currentProviderId || !this.currentModelId) {
         throw new Error('No model configured for session');
       }
 
-      // const provider = this.providerRegistry.get(this.currentProviderId)!;
-      // In a real implementation, we would call the provider here to stream the response
-      // For now, we stub this out as part of the refactor
+      const registry = this.config.getProviderRegistry();
+      const provider = registry.get(this.currentProviderId);
+      if (!provider)
+        throw new Error(`Provider ${this.currentProviderId} not found`);
 
-      // TODO: Implement actual LLM call loop with tool handling
-      // const response = await provider.languageModel(this.currentModelId).doGenerate(...)
+      const languageModel = provider.languageModel(this.currentModelId);
+      const toolRegistry = this.config.getToolRegistry();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tools = this.convertTools(toolRegistry.getAllTools()) as any;
+
+      while (stepCount < MAX_STEPS) {
+        stepCount++;
+        const coreMessages = this.convertHistoryToCoreMessages();
+
+        const { text, toolCalls } = await generateText({
+          model: languageModel,
+          messages: coreMessages,
+          tools,
+        });
+
+        // Append assistant response
+        const assistantMsg: Message = {
+          id: randomUUID(),
+          role: 'assistant',
+          content: text,
+          timestamp: Date.now(),
+          toolCalls: toolCalls?.map((tc) => ({
+            id: tc.toolCallId,
+            name: tc.toolName,
+            arguments:
+              (tc as unknown as { args?: Record<string, unknown> }).args ??
+              (tc as unknown as { input?: Record<string, unknown> }).input ??
+              {},
+          })),
+        };
+        this.messages.push(assistantMsg);
+        this.emit('message.created', assistantMsg);
+
+        if (!toolCalls || toolCalls.length === 0) {
+          break; // No tools called, we are done
+        }
+
+        // Execute tools
+        const toolResults: ToolResult[] = [];
+        for (const tc of toolCalls) {
+          try {
+            const allTools = toolRegistry.getAllTools();
+            const selectedTool = allTools.find((t) => t.name === tc.toolName);
+
+            if (selectedTool) {
+              // Safe execution using buildAndExecute from DeclarativeTool
+              const inputArgs =
+                (tc as unknown as { args?: object }).args ??
+                (tc as unknown as { input?: object }).input ??
+                {};
+              // Pass undefined as AbortSignal (as DeclarativeTool implementation must handle it optional)
+              const result = await selectedTool.buildAndExecute(
+                inputArgs,
+                undefined as unknown as AbortSignal,
+              );
+
+              let resultString = '';
+              if (typeof result.llmContent === 'string') {
+                resultString = result.llmContent;
+              } else {
+                resultString = JSON.stringify(result.llmContent);
+              }
+
+              toolResults.push({
+                toolCallId: tc.toolCallId,
+                result: resultString,
+                isError: false,
+              });
+            } else {
+              toolResults.push({
+                toolCallId: tc.toolCallId,
+                result: 'Tool not found',
+                isError: true,
+              });
+            }
+          } catch (err: unknown) {
+            const errorMessage =
+              err instanceof Error ? err.message : String(err);
+            toolResults.push({
+              toolCallId: tc.toolCallId,
+              result: errorMessage,
+              isError: true,
+            });
+          }
+        }
+
+        // Create tool message (role: 'tool')
+        const toolMsg: Message = {
+          id: randomUUID(),
+          role: 'tool',
+          content: '',
+          timestamp: Date.now(),
+          toolResults,
+        };
+        this.messages.push(toolMsg);
+        this.emit('message.created', toolMsg);
+      }
 
       this.state = 'completed';
       this.emit('state.changed', this.state);
     } catch (error) {
+      console.error('ACP Run Error:', error);
       this.state = 'error';
       this.emit('state.changed', this.state);
       this.emit('error', error);
     }
+  }
+
+  private convertTools(tools: AnyDeclarativeTool[]): Record<string, Tool> {
+    const coreTools: Record<string, Tool> = {};
+    for (const t of tools) {
+      coreTools[t.name] = tool({
+        description: t.description,
+        inputSchema: jsonSchema(t.parameterSchema as JSONSchema7),
+        execute: async (args: unknown) => {
+          // We map this for completeness, though our manual loop bypasses it.
+          const result = await t.buildAndExecute(
+            args as object,
+            undefined as unknown as AbortSignal,
+          );
+          return typeof result.llmContent === 'string'
+            ? result.llmContent
+            : JSON.stringify(result.llmContent);
+        },
+      });
+    }
+    return coreTools;
+  }
+
+  private convertHistoryToCoreMessages(): ModelMessage[] {
+    const coreMessages: ModelMessage[] = [];
+    const knownToolCalls = new Map<
+      string,
+      { name: string; args: Record<string, unknown> }
+    >();
+
+    for (const m of this.messages) {
+      if (m.role === 'user') {
+        coreMessages.push({ role: 'user', content: m.content });
+      } else if (m.role === 'system') {
+        coreMessages.push({ role: 'system', content: m.content });
+      } else if (m.role === 'assistant') {
+        const content: Array<TextPart | ToolCallPart> = [];
+        if (m.content) content.push({ type: 'text', text: m.content });
+        if (m.toolCalls) {
+          for (const tc of m.toolCalls) {
+            // Track tool call for later resolution of results
+            knownToolCalls.set(tc.id, { name: tc.name, args: tc.arguments });
+
+            content.push({
+              type: 'tool-call',
+              toolCallId: tc.id,
+              toolName: tc.name,
+              args: tc.arguments,
+            } as unknown as ToolCallPart); // casting because args vs input mismatch if types are strict
+          }
+        }
+        coreMessages.push({ role: 'assistant', content });
+      } else if (m.role === 'tool') {
+        if (m.toolResults) {
+          const content = m.toolResults.map((tr) => {
+            const originalCall = knownToolCalls.get(tr.toolCallId);
+            const toolName = originalCall?.name || 'unknown';
+            const input = (originalCall?.args as Record<string, unknown>) || {};
+
+            return {
+              type: 'tool-result' as const,
+              toolCallId: tr.toolCallId,
+              toolName,
+              input,
+              output:
+                typeof tr.result === 'string'
+                  ? tr.result
+                  : JSON.stringify(tr.result),
+              isError: tr.isError,
+            };
+          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          coreMessages.push({ role: 'tool', content: content as any });
+        }
+      }
+    }
+    return coreMessages;
   }
 }
