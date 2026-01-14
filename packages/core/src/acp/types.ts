@@ -50,4 +50,6 @@ export interface ACPSessionState {
   cwd: string;
   mcpServers: unknown[]; // Precise type can be refined
   model: Model;
+  summary?: string;
+  pinnedMessageIds?: string[];
 }

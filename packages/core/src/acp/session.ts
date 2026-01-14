@@ -30,6 +30,9 @@ export class ACPSessionManager extends EventEmitter {
   private currentProviderId?: string;
   private currentModelId?: string;
 
+  pinnedMessageIds: string[] = [];
+  summary?: string;
+
   constructor(id: string, config: Config) {
     super();
     this.id = id;
@@ -43,6 +46,20 @@ export class ACPSessionManager extends EventEmitter {
 
     this.currentProviderId = providerId;
     this.currentModelId = modelId;
+  }
+
+  pinMessage(messageId: string) {
+    if (!this.pinnedMessageIds.includes(messageId)) {
+      this.pinnedMessageIds.push(messageId);
+      this.emit('message.pinned', messageId);
+    }
+  }
+
+  unpinMessage(messageId: string) {
+    this.pinnedMessageIds = this.pinnedMessageIds.filter(
+      (id) => id !== messageId,
+    );
+    this.emit('message.unpinned', messageId);
   }
 
   async addUserMessage(content: string): Promise<void> {
@@ -93,38 +110,58 @@ export class ACPSessionManager extends EventEmitter {
         ) {
           const modelDef = provider.models[this.currentModelId];
           // Calculate input tokens roughly
-          let inputTokens = 0;
-          for (const m of this.messages) {
-            inputTokens += m.content
-              ? SessionCompaction.countTokens(m.content)
-              : 0;
-            if (m.toolCalls) {
-              for (const tc of m.toolCalls) {
-                inputTokens += SessionCompaction.countTokens(
-                  JSON.stringify(tc.arguments),
-                );
-              }
-            }
-            if (m.toolResults) {
-              for (const tr of m.toolResults) {
-                inputTokens += SessionCompaction.countTokens(String(tr.result));
-              }
+          // We do this check inside compact now, but we can do a quick check to skip overhead
+          // Actually, let's just delegate to compact
+
+          const compactionResult = await SessionCompaction.compact(
+            this.messages,
+            {
+              model: modelDef,
+              pinnedIds: new Set(this.pinnedMessageIds),
+              summarizer: async (msgs) => {
+                // Simple summarization implementation
+                const textToSummarize = msgs
+                  .map((m) => `${m.role}: ${m.content}`)
+                  .join('\n');
+                const prompt = `You are a helpful assistant. Summarize the following conversation history concisely, preserving key decisions, context, and code snippets where possible:\n\n${textToSummarize}`;
+
+                try {
+                  const { text } = await generateText({
+                    model: languageModel,
+                    prompt,
+                  });
+                  return text;
+                } catch (err) {
+                  console.error('Summarization failed', err);
+                  return '(Summary failed)';
+                }
+              },
+            },
+          );
+
+          if (compactionResult.messages.length !== this.messages.length) {
+            this.messages = compactionResult.messages;
+            if (compactionResult.activeSummary) {
+              this.summary = compactionResult.activeSummary;
+              // Optionally inject summary message here if not already handled
+              // For now, we store it in session.summary.
+              // Depending on how convertHistoryToCoreMessages works, we might need to prepend it.
             }
           }
+        }
 
-          if (
-            SessionCompaction.isOverflow({
-              tokens: { input: inputTokens, output: 0 },
-              model: modelDef,
-            })
-          ) {
-            // Prune
-            await SessionCompaction.prune(this.messages);
-            // Re-convert messages after pruning (if content changed)
-            // But pruning modifies messages in place in our implementation?
-            // Yes, we implemented inplace modification for now.
-            // So we just continue.
-            // TODO: If still overflow, compact.
+        // Re-convert after compaction
+        const currentMessages = this.convertHistoryToCoreMessages();
+
+        // Inject summary if exists
+        if (this.summary && currentMessages.length > 0) {
+          // Find system message or prepend
+          if (currentMessages[0].role === 'system') {
+            currentMessages[0].content += `\n\nContext Summary:\n${this.summary}`;
+          } else {
+            // If no system message, maybe prepend one? Or prepend to first user message?
+            // Usually system message exists.
+            // If not, we can just let it be. Or add a system message.
           }
         }
 

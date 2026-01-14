@@ -99,29 +99,111 @@ export async function prune(
   return { pruned, total };
 }
 
+export interface InteractionTokens {
+  input: number;
+  output: number;
+  cache?: { read: number };
+}
+
+export interface CompactOptions {
+  model: Model;
+  pinnedIds?: Set<string>;
+  summarizer?: (messages: Message[]) => Promise<string>;
+}
+
 export async function compact(
   messages: Message[],
-  _model: Model,
-): Promise<Message[]> {
-  // Basic compaction: Keep system prompt, keep last N messages, summarize the middle.
-  // Since we don't have an LLM call here easily without recursing into session,
-  // we will implement a "dumb" compaction first: Drop middle messages.
-  // Better compaction requires calling an LLM to summarize.
+  options: CompactOptions,
+): Promise<{ messages: Message[]; activeSummary?: string }> {
+  const { model, pinnedIds, summarizer } = options;
 
-  // Strategy:
-  // 1. Keep System message (if any, usually implicit or first)
-  // 2. Keep last 10 messages (or fit within context)
-  // 3. Drop/Summarize the middle.
+  // 1. Calculate current usage
+  const contextLimit = model.contextWindow || 32000;
+  // Reserve space for output (assuming input tokens shouldn't squeeze output too much)
+  const maxInputTokens = contextLimit - (model.maxOutput || 4096) - 1000; // 1k safety buffer
+
+  let currentTokens = 0;
+  for (const m of messages) {
+    currentTokens += countTokens(m.content || '');
+    if (m.toolResults) {
+      for (const res of m.toolResults) {
+        currentTokens += countTokens(String(res.result));
+      }
+    }
+  }
+
+  // If within limits, just return
+  if (currentTokens <= maxInputTokens) {
+    return { messages };
+  }
+
+  // 2. Prune Tool Outputs (Aggressive)
+  const { pruned } = await prune(messages); // This mutates toolResults in place
+  if (currentTokens - pruned <= maxInputTokens) {
+    return { messages }; // Pruning was enough
+  }
+
+  // 3. Summarization Strategy
+  if (!summarizer) {
+    // Fallback to simple truncation if no summarizer provided
+    // Keep system, keep pinned, keep last N
+    const keepLast = 10;
+    if (messages.length <= keepLast + 1) return { messages };
+
+    const lastMessages = messages.slice(-keepLast);
+    // Try to preserve system message
+    const first = messages[0];
+    const newMessages =
+      first.role === 'system' ? [first, ...lastMessages] : lastMessages;
+
+    return { messages: newMessages };
+  }
+
+  // Identify block to summarize
+  // We want to keep:
+  // - System message(s) at start
+  // - Pinned messages
+  // - Recent N messages (e.g. last 10)
 
   const keepLast = 10;
-  if (messages.length <= keepLast + 1) return messages;
+  const safeZoneStartIndex = Math.max(0, messages.length - keepLast);
 
-  const lastMessages = messages.slice(-keepLast);
-  // Keep first message if it's system or critical context?
-  // const firstMessage = messages[0];
+  // Candidates for summarization: Indices from 0 to safeZoneStartIndex
+  // Excluding system prompts at very start and pinned messages
 
-  // For now, simple truncation.
-  const newMessages = [...lastMessages];
+  const toSummarizeVars: Message[] = [];
+  const keptMessages: Message[] = [];
 
-  return newMessages;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const isSystem = msg.role === 'system';
+    const isPinned = pinnedIds?.has(msg.id);
+    const isRecent = i >= safeZoneStartIndex;
+
+    if (isSystem || isPinned || isRecent) {
+      keptMessages.push(msg);
+    } else {
+      // This message is old, not pinned, not system. Summarize it.
+      toSummarizeVars.push(msg);
+    }
+  }
+
+  if (toSummarizeVars.length === 0) {
+    // Nothing to summarize, but still overflow?
+    // This means pinned/recent messages are too large.
+    // We might need to forcefully drop unpinned recent messages or fail.
+    // For now, return keptMessages (which is everything we wanted to keep).
+    return { messages: keptMessages };
+  }
+
+  // Generate summary
+  const summaryText = await summarizer(toSummarizeVars);
+
+  // Create summary message
+  // We can inject this as a system message with a specific header
+  // Or return it separately for the session to handle.
+  // Let's insert it after the initial system prompts?
+  // Or just return it.
+
+  return { messages: keptMessages, activeSummary: summaryText };
 }
