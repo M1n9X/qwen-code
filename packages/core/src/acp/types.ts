@@ -29,3 +29,25 @@ export interface Message {
   toolResults?: ToolResult[];
   timestamp: number;
 }
+
+// Phase 4 additions
+import type { Model } from '../provider/types.js';
+import type { Config as CoreConfig } from '../config/config.js';
+
+export interface ACPConfig {
+  sdk: {
+    config: CoreConfig;
+  };
+  defaultModel?: {
+    modelID: string;
+    providerID: string;
+  };
+  config: CoreConfig;
+}
+
+export interface ACPSessionState {
+  id: string;
+  cwd: string;
+  mcpServers: unknown[]; // Precise type can be refined
+  model: Model;
+}

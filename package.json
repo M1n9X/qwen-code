@@ -110,8 +110,10 @@
     "yargs": "^17.7.2"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.13.0",
     "@testing-library/dom": "^10.4.1",
-    "simple-git": "^3.28.0"
+    "simple-git": "^3.28.0",
+    "zdiff": "^0.1.4"
   },
   "optionalDependencies": {
     "@lydell/node-pty": "1.1.0",
