@@ -418,3 +418,5 @@ export type { Diagnostic } from './client.js';
 export { formatDiagnostic } from './client.js';
 export type { LSPServerInfo, LSPServerHandle } from './server.js';
 export { LANGUAGE_EXTENSIONS, getLanguageId } from './language.js';
+export type { LSPServerRegistry } from './registry.js';
+export { createLSPServerRegistry } from './registry.js';

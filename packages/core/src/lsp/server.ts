@@ -500,9 +500,20 @@ export namespace LSPServer {
    */
   export const Clangd: LSPServerInfo = {
     id: 'clangd',
-    extensions: ['.c', '.cpp', '.cxx', '.cc', '.h', '.hpp', '.hxx'],
+    extensions: [
+      '.c',
+      '.cpp',
+      '.cxx',
+      '.cc',
+      '.c++',
+      '.h',
+      '.hpp',
+      '.hxx',
+      '.h++',
+    ],
     root: NearestRoot([
       'compile_commands.json',
+      'compile_flags.txt',
       '.clangd',
       'CMakeLists.txt',
       'Makefile',
@@ -512,11 +523,690 @@ export namespace LSPServer {
       if (!bin) return undefined;
 
       return {
+        process: spawn(bin, ['--background-index', '--clang-tidy'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  // ============================================================================
+  // Additional Language Servers (ported from opencode)
+  // ============================================================================
+
+  /**
+   * Ruby Language Server (RuboCop).
+   */
+  export const Ruby: LSPServerInfo = {
+    id: 'ruby-lsp',
+    extensions: ['.rb', '.rake', '.gemspec', '.ru'],
+    root: NearestRoot(['Gemfile', 'Gemfile.lock']),
+    async spawn(root) {
+      const bin = await which('rubocop');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, ['--lsp'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * PHP Language Server (Intelephense).
+   */
+  export const PHP: LSPServerInfo = {
+    id: 'intelephense',
+    extensions: ['.php'],
+    root: NearestRoot(['composer.json', 'composer.lock', '.php-version']),
+    async spawn(root) {
+      const binary = await which('intelephense');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(npx, ['intelephense', '--stdio'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env,
+          }),
+          initialization: { telemetry: { enabled: false } },
+        };
+      }
+
+      return {
+        process: spawn(binary, ['--stdio'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+        initialization: { telemetry: { enabled: false } },
+      };
+    },
+  };
+
+  /**
+   * Java Language Server (Eclipse JDT.LS).
+   */
+  export const Java: LSPServerInfo = {
+    id: 'jdtls',
+    extensions: ['.java'],
+    root: NearestRoot([
+      'pom.xml',
+      'build.gradle',
+      'build.gradle.kts',
+      '.project',
+      '.classpath',
+    ]),
+    async spawn(root) {
+      const java = await which('java');
+      if (!java) return undefined;
+
+      // JDTLS requires manual installation - check if it exists
+      const jdtls = await which('jdtls');
+      if (!jdtls) return undefined;
+
+      return {
+        process: spawn(jdtls, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Swift Language Server (SourceKit-LSP).
+   */
+  export const Swift: LSPServerInfo = {
+    id: 'sourcekit-lsp',
+    extensions: ['.swift'],
+    root: NearestRoot(['Package.swift', '*.xcodeproj', '*.xcworkspace']),
+    async spawn(root) {
+      const sourcekit = await which('sourcekit-lsp');
+      if (sourcekit) {
+        return {
+          process: spawn(sourcekit, [], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }),
+        };
+      }
+
+      // On macOS, try xcrun
+      if (process.platform === 'darwin') {
+        const xcrun = await which('xcrun');
+        if (!xcrun) return undefined;
+
+        return {
+          process: spawn(xcrun, ['sourcekit-lsp'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }),
+        };
+      }
+
+      return undefined;
+    },
+  };
+
+  /**
+   * Kotlin Language Server.
+   */
+  export const Kotlin: LSPServerInfo = {
+    id: 'kotlin-ls',
+    extensions: ['.kt', '.kts'],
+    root: async (file) => {
+      // Nearest Gradle root (multi-project or included build)
+      const settingsRoot = await NearestRoot([
+        'settings.gradle.kts',
+        'settings.gradle',
+      ])(file);
+      if (settingsRoot) return settingsRoot;
+
+      // Gradle wrapper (strong root signal)
+      const wrapperRoot = await NearestRoot(['gradlew', 'gradlew.bat'])(file);
+      if (wrapperRoot) return wrapperRoot;
+
+      // Single-project or module-level build
+      const buildRoot = await NearestRoot(['build.gradle.kts', 'build.gradle'])(
+        file,
+      );
+      if (buildRoot) return buildRoot;
+
+      // Maven fallback
+      return NearestRoot(['pom.xml'])(file);
+    },
+    async spawn(root) {
+      const bin = await which('kotlin-language-server');
+      if (!bin) return undefined;
+
+      return {
         process: spawn(bin, [], {
           cwd: root,
           stdio: ['pipe', 'pipe', 'pipe'],
         }),
       };
+    },
+  };
+
+  /**
+   * Zig Language Server (ZLS).
+   */
+  export const Zig: LSPServerInfo = {
+    id: 'zls',
+    extensions: ['.zig', '.zon'],
+    root: NearestRoot(['build.zig']),
+    async spawn(root) {
+      const bin = await which('zls');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Svelte Language Server.
+   */
+  export const Svelte: LSPServerInfo = {
+    id: 'svelte',
+    extensions: ['.svelte'],
+    root: NearestRoot([
+      'package-lock.json',
+      'bun.lockb',
+      'bun.lock',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+    ]),
+    async spawn(root) {
+      const binary = await which('svelteserver');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(npx, ['svelte-language-server', '--stdio'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env,
+          }),
+        };
+      }
+
+      return {
+        process: spawn(binary, ['--stdio'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Astro Language Server.
+   */
+  export const Astro: LSPServerInfo = {
+    id: 'astro',
+    extensions: ['.astro'],
+    root: NearestRoot([
+      'package-lock.json',
+      'bun.lockb',
+      'bun.lock',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+    ]),
+    async spawn(root) {
+      const binary = await which('astro-ls');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(npx, ['@astrojs/language-server', '--stdio'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env,
+          }),
+        };
+      }
+
+      return {
+        process: spawn(binary, ['--stdio'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * C# Language Server (csharp-ls).
+   */
+  export const CSharp: LSPServerInfo = {
+    id: 'csharp',
+    extensions: ['.cs'],
+    root: NearestRoot(['.sln', '.csproj', 'global.json']),
+    async spawn(root) {
+      const bin = await which('csharp-ls');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * F# Language Server (fsautocomplete).
+   */
+  export const FSharp: LSPServerInfo = {
+    id: 'fsharp',
+    extensions: ['.fs', '.fsi', '.fsx', '.fsscript'],
+    root: NearestRoot(['.sln', '.fsproj', 'global.json']),
+    async spawn(root) {
+      const bin = await which('fsautocomplete');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Elixir Language Server (ElixirLS).
+   */
+  export const Elixir: LSPServerInfo = {
+    id: 'elixir-ls',
+    extensions: ['.ex', '.exs'],
+    root: NearestRoot(['mix.exs', 'mix.lock']),
+    async spawn(root) {
+      const bin = await which('elixir-ls');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * YAML Language Server.
+   */
+  export const Yaml: LSPServerInfo = {
+    id: 'yaml-ls',
+    extensions: ['.yaml', '.yml'],
+    root: NearestRoot([
+      'package-lock.json',
+      'bun.lockb',
+      'bun.lock',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+    ]),
+    async spawn(root) {
+      const binary = await which('yaml-language-server');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(npx, ['yaml-language-server', '--stdio'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env,
+          }),
+        };
+      }
+
+      return {
+        process: spawn(binary, ['--stdio'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Lua Language Server.
+   */
+  export const Lua: LSPServerInfo = {
+    id: 'lua-ls',
+    extensions: ['.lua'],
+    root: NearestRoot([
+      '.luarc.json',
+      '.luarc.jsonc',
+      '.luacheckrc',
+      '.stylua.toml',
+      'stylua.toml',
+      'selene.toml',
+      'selene.yml',
+    ]),
+    async spawn(root) {
+      const bin = await which('lua-language-server');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Bash Language Server.
+   */
+  export const Bash: LSPServerInfo = {
+    id: 'bash',
+    extensions: ['.sh', '.bash', '.zsh', '.ksh'],
+    global: true,
+    root: async () => process.cwd(),
+    async spawn(root) {
+      const binary = await which('bash-language-server');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(npx, ['bash-language-server', 'start'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env,
+          }),
+        };
+      }
+
+      return {
+        process: spawn(binary, ['start'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Terraform Language Server.
+   */
+  export const Terraform: LSPServerInfo = {
+    id: 'terraform',
+    extensions: ['.tf', '.tfvars'],
+    root: NearestRoot(['.terraform.lock.hcl', 'terraform.tfstate', '*.tf']),
+    async spawn(root) {
+      const bin = await which('terraform-ls');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, ['serve'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+        initialization: {
+          experimentalFeatures: {
+            prefillRequiredFields: true,
+            validateOnSave: true,
+          },
+        },
+      };
+    },
+  };
+
+  /**
+   * Dockerfile Language Server.
+   */
+  export const Dockerfile: LSPServerInfo = {
+    id: 'dockerfile',
+    extensions: ['.dockerfile'],
+    global: true,
+    root: async () => process.cwd(),
+    async spawn(root) {
+      const binary = await which('docker-langserver');
+      if (!binary) {
+        const npx = await which('npx');
+        if (!npx) return undefined;
+
+        return {
+          process: spawn(
+            npx,
+            ['dockerfile-language-server-nodejs', '--stdio'],
+            {
+              cwd: root,
+              stdio: ['pipe', 'pipe', 'pipe'],
+              env: process.env,
+            },
+          ),
+        };
+      }
+
+      return {
+        process: spawn(binary, ['--stdio'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Dart Language Server.
+   */
+  export const Dart: LSPServerInfo = {
+    id: 'dart',
+    extensions: ['.dart'],
+    root: NearestRoot(['pubspec.yaml', 'analysis_options.yaml']),
+    async spawn(root) {
+      const dart = await which('dart');
+      if (!dart) return undefined;
+
+      return {
+        process: spawn(dart, ['language-server', '--lsp'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * OCaml Language Server.
+   */
+  export const OCaml: LSPServerInfo = {
+    id: 'ocaml-lsp',
+    extensions: ['.ml', '.mli'],
+    root: NearestRoot(['dune-project', 'dune-workspace', '.merlin', 'opam']),
+    async spawn(root) {
+      const bin = await which('ocamllsp');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Gleam Language Server.
+   */
+  export const Gleam: LSPServerInfo = {
+    id: 'gleam',
+    extensions: ['.gleam'],
+    root: NearestRoot(['gleam.toml']),
+    async spawn(root) {
+      const gleam = await which('gleam');
+      if (!gleam) return undefined;
+
+      return {
+        process: spawn(gleam, ['lsp'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Clojure Language Server.
+   */
+  export const Clojure: LSPServerInfo = {
+    id: 'clojure-lsp',
+    extensions: ['.clj', '.cljs', '.cljc', '.edn'],
+    root: NearestRoot([
+      'deps.edn',
+      'project.clj',
+      'shadow-cljs.edn',
+      'bb.edn',
+      'build.boot',
+    ]),
+    async spawn(root) {
+      const bin = await which('clojure-lsp');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, ['listen'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Nix Language Server (nixd).
+   */
+  export const Nix: LSPServerInfo = {
+    id: 'nixd',
+    extensions: ['.nix'],
+    root: NearestRoot(['flake.nix', 'default.nix', 'shell.nix']),
+    async spawn(root) {
+      const nixd = await which('nixd');
+      if (!nixd) return undefined;
+
+      return {
+        process: spawn(nixd, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Prisma Language Server.
+   */
+  export const Prisma: LSPServerInfo = {
+    id: 'prisma',
+    extensions: ['.prisma'],
+    root: NearestRoot([
+      'schema.prisma',
+      'prisma/schema.prisma',
+      'package.json',
+    ]),
+    async spawn(root) {
+      const prisma = await which('prisma');
+      if (!prisma) return undefined;
+
+      return {
+        process: spawn(prisma, ['language-server'], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * LaTeX Language Server (TexLab).
+   */
+  export const TexLab: LSPServerInfo = {
+    id: 'texlab',
+    extensions: ['.tex', '.bib'],
+    root: NearestRoot(['.latexmkrc', 'latexmkrc', '.texlabroot', 'texlabroot']),
+    async spawn(root) {
+      const bin = await which('texlab');
+      if (!bin) return undefined;
+
+      return {
+        process: spawn(bin, [], {
+          cwd: root,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      };
+    },
+  };
+
+  /**
+   * Oxlint Language Server.
+   */
+  export const Oxlint: LSPServerInfo = {
+    id: 'oxlint',
+    extensions: [
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+      '.mjs',
+      '.cjs',
+      '.mts',
+      '.cts',
+      '.vue',
+      '.astro',
+      '.svelte',
+    ],
+    root: NearestRoot([
+      '.oxlintrc.json',
+      'package-lock.json',
+      'bun.lockb',
+      'bun.lock',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+      'package.json',
+    ]),
+    async spawn(root) {
+      // Try oxlint with --lsp flag first
+      const oxlint = await which('oxlint');
+      if (oxlint) {
+        return {
+          process: spawn(oxlint, ['--lsp'], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }),
+        };
+      }
+
+      // Fallback to oxc_language_server
+      const oxcLs = await which('oxc_language_server');
+      if (oxcLs) {
+        return {
+          process: spawn(oxcLs, [], {
+            cwd: root,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }),
+        };
+      }
+
+      return undefined;
     },
   };
 }
@@ -555,6 +1245,7 @@ async function getPythonInitialization(
  */
 export function getAllServers(): Record<string, LSPServerInfo> {
   return {
+    // Core language servers
     typescript: LSPServer.Typescript,
     deno: LSPServer.Deno,
     pyright: LSPServer.Pyright,
@@ -564,5 +1255,30 @@ export function getAllServers(): Record<string, LSPServerInfo> {
     eslint: LSPServer.ESLint,
     biome: LSPServer.Biome,
     clangd: LSPServer.Clangd,
+    // Additional language servers
+    'ruby-lsp': LSPServer.Ruby,
+    intelephense: LSPServer.PHP,
+    jdtls: LSPServer.Java,
+    'sourcekit-lsp': LSPServer.Swift,
+    'kotlin-ls': LSPServer.Kotlin,
+    zls: LSPServer.Zig,
+    svelte: LSPServer.Svelte,
+    astro: LSPServer.Astro,
+    csharp: LSPServer.CSharp,
+    fsharp: LSPServer.FSharp,
+    'elixir-ls': LSPServer.Elixir,
+    'yaml-ls': LSPServer.Yaml,
+    'lua-ls': LSPServer.Lua,
+    bash: LSPServer.Bash,
+    terraform: LSPServer.Terraform,
+    dockerfile: LSPServer.Dockerfile,
+    dart: LSPServer.Dart,
+    'ocaml-lsp': LSPServer.OCaml,
+    gleam: LSPServer.Gleam,
+    'clojure-lsp': LSPServer.Clojure,
+    nixd: LSPServer.Nix,
+    prisma: LSPServer.Prisma,
+    texlab: LSPServer.TexLab,
+    oxlint: LSPServer.Oxlint,
   };
 }

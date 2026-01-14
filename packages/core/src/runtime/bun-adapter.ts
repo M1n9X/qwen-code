@@ -283,6 +283,127 @@ export async function readableStreamToText(
 }
 
 /**
+ * Options for Bun.serve().
+ */
+export interface ServeOptions {
+  /** Port to listen on */
+  port: number;
+  /** Hostname to bind to (default: '0.0.0.0') */
+  hostname?: string;
+  /** Request handler function */
+  fetch: (request: Request) => Response | Promise<Response>;
+}
+
+/**
+ * Server instance returned by serve().
+ */
+export interface Server {
+  /** Port the server is listening on */
+  port: number;
+  /** Hostname the server is bound to */
+  hostname: string;
+  /** Stop the server */
+  stop(): Promise<void>;
+}
+
+/**
+ * Creates an HTTP server compatible with Bun.serve().
+ *
+ * @param options - Server options including port and fetch handler
+ * @returns Promise resolving to Server instance with stop method
+ *
+ * @example
+ * ```typescript
+ * const server = await serve({
+ *   port: 3000,
+ *   fetch(request) {
+ *     return new Response('Hello, World!');
+ *   }
+ * });
+ * // Later: await server.stop();
+ * ```
+ */
+export async function serve(options: ServeOptions): Promise<Server> {
+  const { port, hostname = '127.0.0.1', fetch: fetchHandler } = options;
+
+  // Use dynamic import to avoid issues in environments without http module
+  const http = await import('node:http');
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      // Convert Node.js request to Web Request
+      const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (value) {
+          if (Array.isArray(value)) {
+            value.forEach((v) => headers.append(key, v));
+          } else {
+            headers.set(key, value);
+          }
+        }
+      }
+
+      // Read request body if present
+      let body: BodyInit | null = null;
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(chunk as Buffer);
+        }
+        if (chunks.length > 0) {
+          body = Buffer.concat(chunks);
+        }
+      }
+
+      const request = new Request(url.toString(), {
+        method: req.method,
+        headers,
+        body,
+      });
+
+      // Call the fetch handler
+      const response = await fetchHandler(request);
+
+      // Convert Web Response to Node.js response
+      res.statusCode = response.status;
+      response.headers.forEach((value, key) => {
+        res.setHeader(key, value);
+      });
+
+      const responseBody = await response.arrayBuffer();
+      res.end(Buffer.from(responseBody));
+    } catch (_error) {
+      res.statusCode = 500;
+      res.end('Internal Server Error');
+    }
+  });
+
+  // Wait for server to start listening
+  return new Promise((resolve, reject) => {
+    server.on('error', reject);
+    server.listen(port, hostname, () => {
+      const address = server.address();
+      const actualPort =
+        typeof address === 'object' && address ? address.port : port;
+
+      resolve({
+        port: actualPort,
+        hostname,
+        async stop(): Promise<void> {
+          return new Promise((resolveStop, rejectStop) => {
+            server.close((err) => {
+              if (err) rejectStop(err);
+              else resolveStop();
+            });
+          });
+        },
+      });
+    });
+  });
+}
+
+/**
  * Namespace export for Bun-compatible APIs.
  * Use this when you need a drop-in replacement: `import { Bun } from './bun-adapter'`
  */
@@ -290,6 +411,7 @@ export const Bun = {
   file,
   write,
   spawn,
+  serve,
 };
 
 export default Bun;

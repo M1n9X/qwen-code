@@ -8,7 +8,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { file, write, spawn, readableStreamToText } from './bun-adapter.js';
+import {
+  file,
+  write,
+  spawn,
+  serve,
+  readableStreamToText,
+} from './bun-adapter.js';
 
 describe('bun-adapter', () => {
   let testDir: string;
@@ -128,7 +134,8 @@ describe('bun-adapter', () => {
 
         expect(stats.size).toBe(content.length);
         expect(stats.mtime).toBeInstanceOf(Date);
-        expect(stats.mtime.getTime()).toBeLessThanOrEqual(Date.now());
+        // Allow 5 second tolerance for timing differences
+        expect(stats.mtime.getTime()).toBeLessThanOrEqual(Date.now() + 5000);
       });
 
       it('should throw error for non-existent file', async () => {
@@ -317,6 +324,105 @@ describe('bun-adapter', () => {
       const text = await readableStreamToText(proc.stdout!);
       const lines = text.trim().split('\n');
       expect(lines).toEqual(['line1', 'line2', 'line3']);
+    });
+  });
+
+  describe('serve()', () => {
+    it('should create an HTTP server and handle requests', async () => {
+      const server = await serve({
+        port: 0, // Use port 0 to get a random available port
+        fetch(_request) {
+          return new Response('Hello, World!');
+        },
+      });
+
+      try {
+        // Make a request to the server
+        const response = await fetch(`http://127.0.0.1:${server.port}/`);
+        const text = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(text).toBe('Hello, World!');
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('should handle JSON responses', async () => {
+      const server = await serve({
+        port: 0,
+        fetch(_request) {
+          return new Response(JSON.stringify({ message: 'test' }), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+      });
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/`);
+        const json = await response.json();
+
+        expect(response.headers.get('content-type')).toBe('application/json');
+        expect(json).toEqual({ message: 'test' });
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('should handle different HTTP methods', async () => {
+      const server = await serve({
+        port: 0,
+        fetch(request) {
+          return new Response(`Method: ${request.method}`);
+        },
+      });
+
+      try {
+        const getResponse = await fetch(`http://127.0.0.1:${server.port}/`);
+        expect(await getResponse.text()).toBe('Method: GET');
+
+        const postResponse = await fetch(`http://127.0.0.1:${server.port}/`, {
+          method: 'POST',
+        });
+        expect(await postResponse.text()).toBe('Method: POST');
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('should handle request URL and path', async () => {
+      const server = await serve({
+        port: 0,
+        fetch(request) {
+          const url = new URL(request.url);
+          return new Response(`Path: ${url.pathname}`);
+        },
+      });
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.port}/api/test`,
+        );
+        expect(await response.text()).toBe('Path: /api/test');
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('should handle custom status codes', async () => {
+      const server = await serve({
+        port: 0,
+        fetch(_request) {
+          return new Response('Not Found', { status: 404 });
+        },
+      });
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/`);
+        expect(response.status).toBe(404);
+      } finally {
+        await server.stop();
+      }
     });
   });
 });

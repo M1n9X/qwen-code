@@ -16,9 +16,12 @@ export {
   file,
   write,
   spawn,
+  serve,
   readableStreamToText,
   Bun,
   type BunFile,
   type SpawnOptions,
   type SpawnResult,
+  type ServeOptions,
+  type Server,
 } from './bun-adapter.js';
