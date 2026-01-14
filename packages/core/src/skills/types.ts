@@ -12,6 +12,32 @@
 export type SkillLevel = 'project' | 'user';
 
 /**
+ * Validation constants for skills (agentskills.io spec).
+ */
+export const SkillValidation = {
+  /** Maximum length for skill name */
+  MaxNameLength: 64,
+  /** Maximum length for skill description */
+  MaxDescriptionLength: 500,
+  /** Maximum length for skill body/instructions */
+  MaxBodyLength: 50000,
+  /** Pattern for valid skill names (lowercase, alphanumeric, underscores, hyphens) */
+  NamePattern: /^[a-z][a-z0-9_-]*$/,
+} as const;
+
+/**
+ * Compatibility information for a skill.
+ */
+export interface SkillCompatibility {
+  /** Minimum version required (semver) */
+  minVersion?: string;
+  /** Maximum version supported (semver) */
+  maxVersion?: string;
+  /** Supported platforms (e.g., 'linux', 'darwin', 'win32') */
+  platforms?: string[];
+}
+
+/**
  * Core configuration for a skill as stored in SKILL.md files.
  * Each skill directory contains a SKILL.md file with YAML frontmatter
  * containing metadata, followed by markdown content describing the skill.
@@ -43,6 +69,23 @@ export interface SkillConfig {
    * The markdown body content from SKILL.md (after the frontmatter)
    */
   body: string;
+
+  /**
+   * SPDX license identifier (agentskills.io spec).
+   * Example: 'MIT', 'Apache-2.0', 'UNLICENSED'
+   */
+  license?: string;
+
+  /**
+   * Version compatibility information (agentskills.io spec).
+   */
+  compatibility?: SkillCompatibility;
+
+  /**
+   * Additional metadata for the skill (agentskills.io spec).
+   * Can contain arbitrary key-value pairs for extensibility.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**

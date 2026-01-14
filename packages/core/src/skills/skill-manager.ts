@@ -15,8 +15,9 @@ import type {
   SkillLevel,
   ListSkillsOptions,
   SkillValidationResult,
+  SkillCompatibility,
 } from './types.js';
-import { SkillError, SkillErrorCode } from './types.js';
+import { SkillError, SkillErrorCode, SkillValidation } from './types.js';
 import type { Config } from '../config/config.js';
 
 const QWEN_CONFIG_DIR = '.qwen';
@@ -174,19 +175,30 @@ export class SkillManager {
       errors.push('Missing or invalid "name" field');
     } else if (config.name.trim() === '') {
       errors.push('"name" cannot be empty');
+    } else {
+      // Validate name pattern (agentskills.io: lowercase alphanumeric, underscores, hyphens)
+      if (!SkillValidation.NamePattern.test(config.name)) {
+        errors.push(
+          '"name" must start with a lowercase letter and contain only lowercase alphanumeric characters, underscores, and hyphens',
+        );
+      }
+      // Validate name length
+      if (config.name.length > SkillValidation.MaxNameLength) {
+        errors.push(
+          `"name" exceeds maximum length of ${SkillValidation.MaxNameLength} characters`,
+        );
+      }
     }
 
     if (typeof config.description !== 'string') {
       errors.push('Missing or invalid "description" field');
     } else if (config.description.trim() === '') {
       errors.push('"description" cannot be empty');
-    }
-
-    // Validate skill name with regex (agentskills.io standard)
-    const nameRegex = /^[a-zA-Z0-9_-]+$/;
-    if (!nameRegex.test(config.name!)) {
+    } else if (
+      config.description.length > SkillValidation.MaxDescriptionLength
+    ) {
       errors.push(
-        '"name" must only contain alphanumeric characters, underscores, and hyphens',
+        `"description" exceeds maximum length of ${SkillValidation.MaxDescriptionLength} characters`,
       );
     }
 
@@ -202,6 +214,13 @@ export class SkillManager {
           }
         }
       }
+    }
+
+    // Validate body length
+    if (config.body && config.body.length > SkillValidation.MaxBodyLength) {
+      errors.push(
+        `"body" exceeds maximum length of ${SkillValidation.MaxBodyLength} characters`,
+      );
     }
 
     // Warn if body is empty
@@ -385,6 +404,25 @@ export class SkillManager {
         }
       }
 
+      // Extract agentskills.io spec fields
+      const license = frontmatter['license'] as string | undefined;
+      const metadataRaw = frontmatter['metadata'] as
+        | Record<string, unknown>
+        | undefined;
+      const compatibilityRaw = frontmatter['compatibility'] as
+        | Record<string, unknown>
+        | undefined;
+
+      // Parse compatibility if present
+      let compatibility: SkillCompatibility | undefined;
+      if (compatibilityRaw) {
+        compatibility = {
+          minVersion: compatibilityRaw['minVersion'] as string | undefined,
+          maxVersion: compatibilityRaw['maxVersion'] as string | undefined,
+          platforms: compatibilityRaw['platforms'] as string[] | undefined,
+        };
+      }
+
       const config: SkillConfig = {
         name,
         description,
@@ -392,6 +430,9 @@ export class SkillManager {
         level,
         filePath,
         body: body.trim(),
+        license,
+        compatibility,
+        metadata: metadataRaw,
       };
 
       // Validate the parsed configuration
