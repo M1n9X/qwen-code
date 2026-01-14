@@ -32,7 +32,10 @@ import {
 import { IdeClient } from '../ide/ide-client.js';
 import { FixLLMEditWithInstruction } from '../utils/llm-edit-fixer.js';
 import { applyReplacement } from './edit.js';
-import { safeLiteralReplace } from '../utils/textUtils.js';
+import {
+  applyStrategicReplacement,
+  type ReplacementResult,
+} from '../utils/edit-strategies.js';
 
 interface ReplacementContext {
   params: EditToolParams;
@@ -40,183 +43,10 @@ interface ReplacementContext {
   abortSignal: AbortSignal;
 }
 
-interface ReplacementResult {
-  newContent: string;
-  occurrences: number;
-  finalOldString: string;
-  finalNewString: string;
-}
+// ReplacementResult imported from edit-strategies.ts
 
-function restoreTrailingNewline(
-  originalContent: string,
-  modifiedContent: string,
-): string {
-  const hadTrailingNewline = originalContent.endsWith('\n');
-  if (hadTrailingNewline && !modifiedContent.endsWith('\n')) {
-    return modifiedContent + '\n';
-  } else if (!hadTrailingNewline && modifiedContent.endsWith('\n')) {
-    return modifiedContent.replace(/\n$/, '');
-  }
-  return modifiedContent;
-}
-
-/**
- * Escapes characters with special meaning in regular expressions.
- * @param str The string to escape.
- * @returns The escaped string.
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-}
-
-async function calculateExactReplacement(
-  context: ReplacementContext,
-): Promise<ReplacementResult | null> {
-  const { currentContent, params } = context;
-  const { old_string, new_string } = params;
-
-  const normalizedCode = currentContent;
-  const normalizedSearch = old_string.replace(/\r\n/g, '\n');
-  const normalizedReplace = new_string.replace(/\r\n/g, '\n');
-
-  const exactOccurrences = normalizedCode.split(normalizedSearch).length - 1;
-  if (exactOccurrences > 0) {
-    let modifiedCode = safeLiteralReplace(
-      normalizedCode,
-      normalizedSearch,
-      normalizedReplace,
-    );
-    modifiedCode = restoreTrailingNewline(currentContent, modifiedCode);
-    return {
-      newContent: modifiedCode,
-      occurrences: exactOccurrences,
-      finalOldString: normalizedSearch,
-      finalNewString: normalizedReplace,
-    };
-  }
-
-  return null;
-}
-
-async function calculateFlexibleReplacement(
-  context: ReplacementContext,
-): Promise<ReplacementResult | null> {
-  const { currentContent, params } = context;
-  const { old_string, new_string } = params;
-
-  const normalizedCode = currentContent;
-  const normalizedSearch = old_string.replace(/\r\n/g, '\n');
-  const normalizedReplace = new_string.replace(/\r\n/g, '\n');
-
-  const sourceLines = normalizedCode.match(/.*(?:\n|$)/g)?.slice(0, -1) ?? [];
-  const searchLinesStripped = normalizedSearch
-    .split('\n')
-    .map((line: string) => line.trim());
-  const replaceLines = normalizedReplace.split('\n');
-
-  let flexibleOccurrences = 0;
-  let i = 0;
-  while (i <= sourceLines.length - searchLinesStripped.length) {
-    const window = sourceLines.slice(i, i + searchLinesStripped.length);
-    const windowStripped = window.map((line: string) => line.trim());
-    const isMatch = windowStripped.every(
-      (line: string, index: number) => line === searchLinesStripped[index],
-    );
-
-    if (isMatch) {
-      flexibleOccurrences++;
-      const firstLineInMatch = window[0];
-      const indentationMatch = firstLineInMatch.match(/^(\s*)/);
-      const indentation = indentationMatch ? indentationMatch[1] : '';
-      const newBlockWithIndent = replaceLines.map(
-        (line: string) => `${indentation}${line}`,
-      );
-      sourceLines.splice(
-        i,
-        searchLinesStripped.length,
-        newBlockWithIndent.join('\n'),
-      );
-      i += replaceLines.length;
-    } else {
-      i++;
-    }
-  }
-
-  if (flexibleOccurrences > 0) {
-    let modifiedCode = sourceLines.join('');
-    modifiedCode = restoreTrailingNewline(currentContent, modifiedCode);
-    return {
-      newContent: modifiedCode,
-      occurrences: flexibleOccurrences,
-      finalOldString: normalizedSearch,
-      finalNewString: normalizedReplace,
-    };
-  }
-
-  return null;
-}
-
-async function calculateRegexReplacement(
-  context: ReplacementContext,
-): Promise<ReplacementResult | null> {
-  const { currentContent, params } = context;
-  const { old_string, new_string } = params;
-
-  // Normalize line endings for consistent processing.
-  const normalizedSearch = old_string.replace(/\r\n/g, '\n');
-  const normalizedReplace = new_string.replace(/\r\n/g, '\n');
-
-  // This logic is ported from your Python implementation.
-  // It builds a flexible, multi-line regex from a search string.
-  const delimiters = ['(', ')', ':', '[', ']', '{', '}', '>', '<', '='];
-
-  let processedString = normalizedSearch;
-  for (const delim of delimiters) {
-    processedString = processedString.split(delim).join(` ${delim} `);
-  }
-
-  // Split by any whitespace and remove empty strings.
-  const tokens = processedString.split(/\s+/).filter(Boolean);
-
-  if (tokens.length === 0) {
-    return null;
-  }
-
-  const escapedTokens = tokens.map(escapeRegex);
-  // Join tokens with `\s*` to allow for flexible whitespace between them.
-  const pattern = escapedTokens.join('\\s*');
-
-  // The final pattern captures leading whitespace (indentation) and then matches the token pattern.
-  // 'm' flag enables multi-line mode, so '^' matches the start of any line.
-  const finalPattern = `^(\\s*)${pattern}`;
-  const flexibleRegex = new RegExp(finalPattern, 'm');
-
-  const match = flexibleRegex.exec(currentContent);
-
-  if (!match) {
-    return null;
-  }
-
-  const indentation = match[1] || '';
-  const newLines = normalizedReplace.split('\n');
-  const newBlockWithIndent = newLines
-    .map((line) => `${indentation}${line}`)
-    .join('\n');
-
-  // Use replace with the regex to substitute the matched content.
-  // Since the regex doesn't have the 'g' flag, it will only replace the first occurrence.
-  const modifiedCode = currentContent.replace(
-    flexibleRegex,
-    newBlockWithIndent,
-  );
-
-  return {
-    newContent: restoreTrailingNewline(currentContent, modifiedCode),
-    occurrences: 1, // This method is designed to find and replace only the first occurrence.
-    finalOldString: normalizedSearch,
-    finalNewString: normalizedReplace,
-  };
-}
+// Unused functions removed: restoreTrailingNewline, escapeRegex, calculateExactReplacement, calculateFlexibleReplacement, calculateRegexReplacement
+// They are superseded by edit-strategies.ts logic.
 
 /**
  * Detects the line ending style of a string.
@@ -234,39 +64,14 @@ export async function calculateReplacement(
 ): Promise<ReplacementResult> {
   const { currentContent, params } = context;
   const { old_string, new_string } = params;
-  const normalizedSearch = old_string.replace(/\r\n/g, '\n');
-  const normalizedReplace = new_string.replace(/\r\n/g, '\n');
 
-  if (normalizedSearch === '') {
-    return {
-      newContent: currentContent,
-      occurrences: 0,
-      finalOldString: normalizedSearch,
-      finalNewString: normalizedReplace,
-    };
-  }
-
-  const exactResult = await calculateExactReplacement(context);
-  if (exactResult) {
-    return exactResult;
-  }
-
-  const flexibleResult = await calculateFlexibleReplacement(context);
-  if (flexibleResult) {
-    return flexibleResult;
-  }
-
-  const regexResult = await calculateRegexReplacement(context);
-  if (regexResult) {
-    return regexResult;
-  }
-
-  return {
-    newContent: currentContent,
-    occurrences: 0,
-    finalOldString: normalizedSearch,
-    finalNewString: normalizedReplace,
-  };
+  // Use the robust strategies from edit-strategies.ts
+  return applyStrategicReplacement(
+    currentContent,
+    old_string,
+    new_string,
+    false,
+  );
 }
 
 export function getErrorReplaceResult(
