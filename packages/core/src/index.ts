@@ -45,6 +45,15 @@ export * from './core/geminiRequest.js';
 export * from './core/coreToolScheduler.js';
 export * from './core/nonInteractiveToolExecutor.js';
 
+// Export Generation Service (Unified architecture)
+export * from './generation/index.js';
+
+// Export Unified Types
+export * from './types/unified/index.js';
+
+// Export Feature Flags
+export * from './config/featureFlags.js';
+
 export * from './qwen/qwenOAuth2.js';
 
 // Export utilities
