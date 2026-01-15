@@ -158,6 +158,7 @@ export class ProviderCoordinator implements Coordinator {
 
   /**
    * Performs a chat request with automatic fallback
+   * @deprecated Use GenerationService.generate() instead. This method will be removed in a future version.
    */
   async chat(
     messages: ChatMessage[],
@@ -214,6 +215,7 @@ export class ProviderCoordinator implements Coordinator {
 
   /**
    * Performs a streaming chat request with automatic fallback
+   * @deprecated Use GenerationService.stream() instead. This method will be removed in a future version.
    */
   async *chatStream(
     messages: ChatMessage[],

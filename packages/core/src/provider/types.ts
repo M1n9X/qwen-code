@@ -216,11 +216,13 @@ export interface Provider {
 
   /**
    * Performs a chat completion request
+   * @deprecated Use GenerationService.generate() instead. This method will be removed in a future version.
    */
   chat?(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
 
   /**
    * Performs a streaming chat completion request
+   * @deprecated Use GenerationService.stream() instead. This method will be removed in a future version.
    */
   chatStream?(
     messages: ChatMessage[],
@@ -344,11 +346,13 @@ export interface Coordinator {
 
   /**
    * Performs a chat request with automatic fallback
+   * @deprecated Use GenerationService.generate() instead. This method will be removed in a future version.
    */
   chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
 
   /**
    * Performs a streaming chat request with automatic fallback
+   * @deprecated Use GenerationService.stream() instead. This method will be removed in a future version.
    */
   chatStream(
     messages: ChatMessage[],

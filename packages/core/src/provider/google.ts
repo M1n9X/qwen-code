@@ -5,17 +5,13 @@
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { generateText, streamText, type LanguageModel } from 'ai';
+import type { LanguageModel } from 'ai';
 import type {
   Provider,
   Model,
   ProviderConfig,
   ProviderValidation,
   ProviderHealth,
-  ChatOptions,
-  ChatResponse,
-  ChatChunk,
-  ChatMessage,
   GoogleProviderConfig,
 } from './types.js';
 
@@ -243,111 +239,9 @@ export class GoogleProvider implements Provider {
   }
 
   /**
-   * Performs a chat completion request
-   */
-  async chat(
-    messages: ChatMessage[],
-    options?: ChatOptions,
-  ): Promise<ChatResponse> {
-    const modelId =
-      options?.model ?? this.config.model ?? 'gemini-1.5-pro-latest';
-    const model = this.languageModel(modelId);
-
-    const result = await generateText({
-      model,
-      messages,
-      maxOutputTokens: options?.maxTokens ?? this.config.maxTokens,
-      temperature: options?.temperature ?? this.config.temperature,
-      stopSequences: options?.stopSequences,
-      abortSignal: options?.signal,
-    });
-
-    return {
-      content: result.text,
-      finishReason: this.mapFinishReason(result.finishReason),
-      usage: result.usage
-        ? {
-            promptTokens: result.usage.inputTokens ?? 0,
-            completionTokens: result.usage.outputTokens ?? 0,
-            totalTokens:
-              (result.usage.inputTokens ?? 0) +
-              (result.usage.outputTokens ?? 0),
-          }
-        : undefined,
-      toolCalls: result.toolCalls?.map((tc) => ({
-        id: tc.toolCallId,
-        name: tc.toolName,
-        arguments: tc.input as Record<string, unknown>,
-      })),
-    };
-  }
-
-  /**
-   * Performs a streaming chat completion request
-   */
-  async *chatStream(
-    messages: ChatMessage[],
-    options?: ChatOptions,
-  ): AsyncGenerator<ChatChunk> {
-    const modelId =
-      options?.model ?? this.config.model ?? 'gemini-1.5-pro-latest';
-    const model = this.languageModel(modelId);
-
-    const result = streamText({
-      model,
-      messages,
-      maxOutputTokens: options?.maxTokens ?? this.config.maxTokens,
-      temperature: options?.temperature ?? this.config.temperature,
-      stopSequences: options?.stopSequences,
-      abortSignal: options?.signal,
-    });
-
-    try {
-      for await (const chunk of result.textStream) {
-        yield {
-          type: 'text-delta',
-          textDelta: chunk,
-        };
-      }
-
-      const finalResult = await result;
-      const finishReason = await finalResult.finishReason;
-      yield {
-        type: 'finish',
-        finishReason: this.mapFinishReason(finishReason),
-      };
-    } catch (error) {
-      yield {
-        type: 'error',
-        error: error instanceof Error ? error : new Error('Unknown error'),
-      };
-    }
-  }
-
-  /**
    * Shuts down the provider
    */
   async shutdown(): Promise<void> {
     this.lastHealth = null;
-  }
-
-  /**
-   * Maps AI SDK finish reason to our format
-   */
-  private mapFinishReason(reason: string): ChatResponse['finishReason'] {
-    switch (reason) {
-      case 'stop':
-        return 'stop';
-      case 'length':
-        return 'length';
-      case 'tool-calls':
-        return 'tool-calls';
-      case 'content-filter':
-        return 'content-filter';
-      case 'error':
-        return 'error';
-      default:
-        return 'other';
-    }
   }
 }
