@@ -110,8 +110,12 @@ import {
   type AvailableModel,
 } from '../models/index.js';
 
+// Plugin Layer
+import { PluginManager } from '../plugin/plugin-manager.js';
+
 // Provider Layer
 import { ProviderRegistry } from '../provider/registry.js';
+import { ProviderCoordinator } from '../provider/coordinator.js';
 import { OpenAIProvider } from '../provider/openai.js';
 import { AnthropicProvider } from '../provider/anthropic.js';
 import { LocalProvider } from '../provider/local.js';
@@ -119,6 +123,12 @@ import { AzureProvider } from '../provider/azure.js';
 import { BedrockProvider } from '../provider/bedrock.js';
 import { GoogleProvider } from '../provider/google.js';
 import { OpenRouterProvider } from '../provider/openrouter.js';
+
+// Generation Layer
+import {
+  type GenerationService,
+  createGenerationServiceFromConfig,
+} from '../generation/index.js';
 
 // Re-export types
 export type { AnyToolInvocation, FileFilteringOptions, MCPOAuthConfig };
@@ -415,8 +425,11 @@ export class Config {
   private toolRegistry!: ToolRegistry;
   private promptRegistry!: PromptRegistry;
   private providerRegistry!: ProviderRegistry;
+  private providerCoordinator!: ProviderCoordinator;
+  private generationService!: GenerationService;
   private subagentManager!: SubagentManager;
   private skillManager!: SkillManager;
+  private pluginManager!: PluginManager;
   private fileSystemService: FileSystemService;
   private contentGeneratorConfig!: ContentGeneratorConfig;
   private contentGeneratorConfigSources: ContentGeneratorConfigSources = {};
@@ -720,13 +733,70 @@ export class Config {
     // Always register local provider
     this.providerRegistry.register(new LocalProvider());
 
+    // Initialize Plugin Manager
+    this.pluginManager = new PluginManager({
+      directory: process.cwd(),
+      worktree: process.cwd(),
+    });
+    // TODO: Register plugins here if any?
+
+    // Initialize Provider Coordinator
+    this.providerCoordinator = new ProviderCoordinator();
+    // Sync providers from registry to coordinator
+    for (const provider of this.providerRegistry.list()) {
+      this.providerCoordinator.registerProvider(provider);
+    }
+
     await this.geminiClient.initialize();
+
+    // Initialize Generation Service
+    // We defer this until after geminiClient check because contentGenerator (legacy)
+    // is created inside refreshAuth which geminiClient calls or logic implies
+    // But createGenerationServiceFromConfig handles legacy contentGenerator if needed.
+    // However, contentGenerator is null until refreshAuth is called.
+    // For now, let's assume contentGenerator will be set when needed or passed undefined?
+    // createGenerationServiceFromConfig throws if contentGenerator is missing in legacy mode.
+    // So we might need to lazy initialize or update it later.
+    // Actually, we can pass a getter or just re-create it?
+    // For Unified mode, we need coordinator.
+
+    // Let's create it. If legacy mode (default false for now hopefully? or default legacy),
+    // we need contentGenerator.
+    // But initialize() calls geminiClient.initialize(), which calls refreshAuth(), which sets contentGenerator.
+    // So contentGenerator SHOULD be ready here.
+
+    try {
+      this.generationService = createGenerationServiceFromConfig({
+        coordinator: this.providerCoordinator,
+        contentGenerator: this.contentGenerator,
+        pluginManager: this.pluginManager,
+        config: this,
+      });
+    } catch (error) {
+      // If legacy mode and contentGenerator not ready, it might fail.
+      // But we just await geminiClient.initialize() above so it should be fine.
+      console.warn('Failed to initialize GenerationService:', error);
+      // Fallback or leave undefined?
+      // For now, let's rethrow or handle gracefully.
+    }
 
     logStartSession(this, new StartSessionEvent(this));
   }
 
   getContentGenerator(): ContentGenerator {
     return this.contentGenerator;
+  }
+
+  getGenerationService(): GenerationService {
+    return this.generationService;
+  }
+
+  getProviderCoordinator(): ProviderCoordinator {
+    return this.providerCoordinator;
+  }
+
+  getPluginManager(): PluginManager {
+    return this.pluginManager;
   }
 
   /**

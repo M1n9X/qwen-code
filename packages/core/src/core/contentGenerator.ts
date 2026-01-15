@@ -33,6 +33,8 @@ import { PROVIDER_SOURCED_FIELDS } from '../models/modelsConfig.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
+ *
+ * @deprecated Use GenerationService instead. This interface will be removed in future versions.
  */
 export interface ContentGenerator {
   generateContent(

@@ -6,7 +6,6 @@
 
 import { EventEmitter } from 'events';
 import {
-  generateText,
   type ModelMessage,
   type Tool,
   tool,
@@ -88,49 +87,53 @@ export class ACPSessionManager extends EventEmitter {
         throw new Error('No model configured for session');
       }
 
-      const registry = this.config.getProviderRegistry();
-      const provider = registry.get(this.currentProviderId);
-      if (!provider)
-        throw new Error(`Provider ${this.currentProviderId} not found`);
+      const generationService = this.config.getGenerationService();
+      if (!generationService) {
+        throw new Error('GenerationService not initialized');
+      }
 
-      const languageModel = provider.languageModel(this.currentModelId);
+      // Convert tool registry tools to Vercel AI SDK tools
+      // GenerationService expects Vercel AI SDK tools
       const toolRegistry = this.config.getToolRegistry();
+      const allTools = toolRegistry.getAllTools();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tools = this.convertTools(toolRegistry.getAllTools()) as any;
+      const tools = this.convertTools(allTools) as any;
 
       while (stepCount < MAX_STEPS) {
         stepCount++;
-        const coreMessages = this.convertHistoryToCoreMessages();
 
         // Check for context overflow
-        if (
-          this.currentModelId &&
-          provider.models &&
-          provider.models[this.currentModelId]
-        ) {
-          const modelDef = provider.models[this.currentModelId];
-          // Calculate input tokens roughly
-          // We do this check inside compact now, but we can do a quick check to skip overhead
-          // Actually, let's just delegate to compact
+        // We defer to compaction logic, but we need model definition for context window
+        // With GenerationService, we might not have direct access to modelDef easily without provider
+        // But we can get it from Coordinator or Config if needed.
+        // For now, let's assume we can get it from registry via config as before
+        const registry = this.config.getProviderRegistry();
+        const provider = registry.get(this.currentProviderId);
+        const modelDef = provider?.models[this.currentModelId];
 
+        if (modelDef) {
           const compactionResult = await SessionCompaction.compact(
             this.messages,
             {
               model: modelDef,
               pinnedIds: new Set(this.pinnedMessageIds),
               summarizer: async (msgs) => {
-                // Simple summarization implementation
+                // Summarization using GenerationService
                 const textToSummarize = msgs
                   .map((m) => `${m.role}: ${m.content}`)
                   .join('\n');
                 const prompt = `You are a helpful assistant. Summarize the following conversation history concisely, preserving key decisions, context, and code snippets where possible:\n\n${textToSummarize}`;
 
                 try {
-                  const { text } = await generateText({
-                    model: languageModel,
-                    prompt,
-                  });
-                  return text;
+                  const result = await generationService.generate(
+                    [{ role: 'user', content: prompt }],
+                    {
+                      model: this.currentModelId!,
+                      provider: this.currentProviderId!,
+                      maxTokens: 1000,
+                    },
+                  );
+                  return result.content;
                 } catch (err) {
                   console.error('Summarization failed', err);
                   return '(Summary failed)';
@@ -143,9 +146,6 @@ export class ACPSessionManager extends EventEmitter {
             this.messages = compactionResult.messages;
             if (compactionResult.activeSummary) {
               this.summary = compactionResult.activeSummary;
-              // Optionally inject summary message here if not already handled
-              // For now, we store it in session.summary.
-              // Depending on how convertHistoryToCoreMessages works, we might need to prepend it.
             }
           }
         }
@@ -155,21 +155,18 @@ export class ACPSessionManager extends EventEmitter {
 
         // Inject summary if exists
         if (this.summary && currentMessages.length > 0) {
-          // Find system message or prepend
           if (currentMessages[0].role === 'system') {
             currentMessages[0].content += `\n\nContext Summary:\n${this.summary}`;
-          } else {
-            // If no system message, maybe prepend one? Or prepend to first user message?
-            // Usually system message exists.
-            // If not, we can just let it be. Or add a system message.
           }
         }
 
-        const { text, toolCalls } = await generateText({
-          model: languageModel,
-          messages: coreMessages,
-          tools,
+        const result = await generationService.generate(currentMessages, {
+          model: this.currentModelId,
+          provider: this.currentProviderId,
+          tools: Object.values(tools), // Pass tools array
         });
+
+        const { content: text, toolCalls } = result;
 
         // Append assistant response
         const assistantMsg: Message = {
@@ -178,12 +175,9 @@ export class ACPSessionManager extends EventEmitter {
           content: text,
           timestamp: Date.now(),
           toolCalls: toolCalls?.map((tc) => ({
-            id: tc.toolCallId,
-            name: tc.toolName,
-            arguments:
-              (tc as unknown as { args?: Record<string, unknown> }).args ??
-              (tc as unknown as { input?: Record<string, unknown> }).input ??
-              {},
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
           })),
         };
         this.messages.push(assistantMsg);
@@ -195,18 +189,30 @@ export class ACPSessionManager extends EventEmitter {
 
         // Execute tools
         const toolResults: ToolResult[] = [];
+        const pluginManager = this.config.getPluginManager();
+
         for (const tc of toolCalls) {
           try {
-            const allTools = toolRegistry.getAllTools();
-            const selectedTool = allTools.find((t) => t.name === tc.toolName);
+            const selectedTool = allTools.find((t) => t.name === tc.name);
 
             if (selectedTool) {
-              // Safe execution using buildAndExecute from DeclarativeTool
-              const inputArgs =
-                (tc as unknown as { args?: object }).args ??
-                (tc as unknown as { input?: object }).input ??
-                {};
-              // Pass undefined as AbortSignal (as DeclarativeTool implementation must handle it optional)
+              let inputArgs = tc.arguments as object;
+
+              // Hook: tool.execute.before
+              if (pluginManager) {
+                const hookOutput = { args: inputArgs };
+                await pluginManager.trigger(
+                  'tool.execute.before',
+                  {
+                    tool: tc.name,
+                    sessionID: this.id,
+                    callID: tc.id,
+                  },
+                  hookOutput,
+                );
+                inputArgs = hookOutput.args as object;
+              }
+
               const result = await selectedTool.buildAndExecute(
                 inputArgs,
                 undefined as unknown as AbortSignal,
@@ -219,14 +225,33 @@ export class ACPSessionManager extends EventEmitter {
                 resultString = JSON.stringify(result.llmContent);
               }
 
+              // Hook: tool.execute.after
+              if (pluginManager) {
+                const hookOutput = {
+                  title: '',
+                  output: resultString,
+                  metadata: undefined,
+                };
+                await pluginManager.trigger(
+                  'tool.execute.after',
+                  {
+                    tool: tc.name,
+                    sessionID: this.id,
+                    callID: tc.id,
+                  },
+                  hookOutput,
+                );
+                resultString = hookOutput.output;
+              }
+
               toolResults.push({
-                toolCallId: tc.toolCallId,
+                toolCallId: tc.id,
                 result: resultString,
                 isError: false,
               });
             } else {
               toolResults.push({
-                toolCallId: tc.toolCallId,
+                toolCallId: tc.id,
                 result: 'Tool not found',
                 isError: true,
               });
@@ -235,7 +260,7 @@ export class ACPSessionManager extends EventEmitter {
             const errorMessage =
               err instanceof Error ? err.message : String(err);
             toolResults.push({
-              toolCallId: tc.toolCallId,
+              toolCallId: tc.id,
               result: errorMessage,
               isError: true,
             });
