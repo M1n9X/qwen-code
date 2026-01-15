@@ -656,18 +656,25 @@ For each migrated feature:
 
 ## 8. Implementation Timeline
 
-| Phase                                | Duration  | Dependencies | Key Deliverables                      |
-| :----------------------------------- | :-------- | :----------- | :------------------------------------ |
-| **Phase 0**: Runtime Compatibility   | 3 days    | None         | `bun-adapter.ts`, unit tests          |
-| **Phase 1**: LSP Integration         | 2 weeks   | Phase 0      | 15+ language servers, LSP tools       |
-| **Phase 2**: Plugin System           | 2 weeks   | Phase 0      | Plugin SDK, hook system               |
-| **Phase 3**: Skills Standardization  | 1 week    | None         | agentskills.io compliant parser       |
-| **Phase 4**: ACP Enhancement         | 2 weeks   | Phase 2      | State machine, compaction             |
-| **Phase 5**: Multi-Provider          | 1.5 weeks | Phase 4      | Azure, Bedrock, Google, OpenRouter    |
-| **Phase 6**: Tool Optimization + AST | 2 weeks   | Phase 1      | Optimized grep/multiedit, Tree-sitter |
-| **Phase 7**: Context Management      | 1 week    | Phase 6      | Summarization, Pinning                |
+> [!TIP]
+> **Status: ALL PHASES COMPLETE** (as of 2026-01-15)
 
-**Total Estimated Duration**: 12 weeks
+| Phase                                | Duration  | Dependencies | Status  | Key Deliverables                      |
+| :----------------------------------- | :-------- | :----------- | :------ | :------------------------------------ |
+| **Phase 0**: Runtime Compatibility   | 3 days    | None         | ✅ DONE | `bun-adapter.ts`, unit tests          |
+| **Phase 1**: LSP Integration         | 2 weeks   | Phase 0      | ✅ DONE | 15+ language servers, LSP tools       |
+| **Phase 2**: Plugin System           | 2 weeks   | Phase 0      | ✅ DONE | Plugin SDK, hook system               |
+| **Phase 3**: Skills Standardization  | 1 week    | None         | ✅ DONE | agentskills.io compliant parser       |
+| **Phase 4**: ACP Enhancement         | 2 weeks   | Phase 2      | ✅ DONE | State machine, compaction             |
+| **Phase 5**: Multi-Provider          | 1.5 weeks | Phase 4      | ✅ DONE | Azure, Bedrock, Google, OpenRouter    |
+| **Phase 6**: Tool Optimization + AST | 2 weeks   | Phase 1      | ✅ DONE | Optimized grep/multiedit, Tree-sitter |
+| **Phase 7**: Context Management      | 1 week    | Phase 6      | ✅ DONE | Summarization, Pinning                |
+
+**Total Estimated Duration**: 12 weeks  
+**Actual Duration**: Completed
+
+> [!IMPORTANT]
+> **Next Steps**: Architecture consolidation required. See [wiki/architecture/](./architecture/) for the unified architecture proposal to address technical debt from patch-based migration.
 
 ---
 
