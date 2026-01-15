@@ -35,6 +35,7 @@ import { ModelSwitchDialog } from './ModelSwitchDialog.js';
 import { AgentCreationWizard } from './subagents/create/AgentCreationWizard.js';
 import { AgentsManagerDialog } from './subagents/manage/AgentsManagerDialog.js';
 import { SessionPicker } from './SessionPicker.js';
+import { ProviderDialog } from './ProviderDialog.js';
 
 interface DialogManagerProps {
   addItem: UseHistoryManagerReturn['addItem'];
@@ -289,6 +290,10 @@ export const DialogManager = ({
         onCancel={uiActions.closeResumeDialog}
       />
     );
+  }
+
+  if (uiState.isProviderDialogOpen) {
+    return <ProviderDialog onClose={uiActions.closeProviderDialog} />;
   }
 
   return null;

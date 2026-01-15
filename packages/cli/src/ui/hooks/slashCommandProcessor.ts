@@ -74,6 +74,8 @@ interface SlashCommandProcessorActions {
   addConfirmUpdateExtensionRequest: (request: ConfirmationRequest) => void;
   openSubagentCreateDialog: () => void;
   openAgentsManagerDialog: () => void;
+  // Provider dialog for /provider connect
+  openProviderDialog: () => void;
 }
 
 /**
@@ -421,6 +423,9 @@ export const useSlashCommandProcessor = (
                       return { type: 'handled' };
                     case 'resume':
                       actions.openResumeDialog();
+                      return { type: 'handled' };
+                    case 'provider':
+                      actions.openProviderDialog();
                       return { type: 'handled' };
                     case 'help':
                       return { type: 'handled' };

@@ -446,6 +446,17 @@ export const AppContainer = (props: AppContainerProps) => {
     closeAgentsManagerDialog,
   } = useAgentsManagerDialog();
 
+  // Provider dialog for /provider connect
+  const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false);
+  const openProviderDialog = useCallback(
+    () => setIsProviderDialogOpen(true),
+    [],
+  );
+  const closeProviderDialog = useCallback(
+    () => setIsProviderDialogOpen(false),
+    [],
+  );
+
   // Vision model auto-switch dialog state (must be before slashCommandActions)
   const [isVisionSwitchDialogOpen, setIsVisionSwitchDialogOpen] =
     useState(false);
@@ -480,6 +491,7 @@ export const AppContainer = (props: AppContainerProps) => {
       openSubagentCreateDialog,
       openAgentsManagerDialog,
       openResumeDialog,
+      openProviderDialog,
     }),
     [
       openAuthDialog,
@@ -495,6 +507,7 @@ export const AppContainer = (props: AppContainerProps) => {
       openSubagentCreateDialog,
       openAgentsManagerDialog,
       openResumeDialog,
+      openProviderDialog,
     ],
   );
 
@@ -1289,6 +1302,8 @@ export const AppContainer = (props: AppContainerProps) => {
       // Subagent dialogs
       isSubagentCreateDialogOpen,
       isAgentsManagerDialogOpen,
+      // Provider dialog for /provider connect
+      isProviderDialogOpen,
     }),
     [
       isThemeDialogOpen,
@@ -1379,6 +1394,8 @@ export const AppContainer = (props: AppContainerProps) => {
       // Subagent dialogs
       isSubagentCreateDialogOpen,
       isAgentsManagerDialogOpen,
+      // Provider dialog for /provider connect
+      isProviderDialogOpen,
     ],
   );
 
@@ -1419,6 +1436,8 @@ export const AppContainer = (props: AppContainerProps) => {
       openResumeDialog,
       closeResumeDialog,
       handleResume,
+      // Provider dialog for /provider connect
+      closeProviderDialog,
     }),
     [
       handleThemeSelect,
@@ -1454,6 +1473,8 @@ export const AppContainer = (props: AppContainerProps) => {
       openResumeDialog,
       closeResumeDialog,
       handleResume,
+      // Provider dialog for /provider connect
+      closeProviderDialog,
     ],
   );
 

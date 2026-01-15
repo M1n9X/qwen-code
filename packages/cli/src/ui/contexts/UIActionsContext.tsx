@@ -66,6 +66,8 @@ export interface UIActions {
   openResumeDialog: () => void;
   closeResumeDialog: () => void;
   handleResume: (sessionId: string) => void;
+  // Provider dialog for /provider connect
+  closeProviderDialog: () => void;
 }
 
 export const UIActionsContext = createContext<UIActions | null>(null);

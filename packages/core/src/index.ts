@@ -165,5 +165,8 @@ export * from './utils/browser.js';
 export { OpenAILogger, openaiLogger } from './utils/openaiLogger.js';
 export { Storage } from './config/storage.js';
 
+// Export provider auth
+export * from './auth/index.js';
+
 // Export test utils
 export * from './test-utils/index.js';

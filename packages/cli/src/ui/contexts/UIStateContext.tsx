@@ -126,6 +126,8 @@ export interface UIState {
   // Subagent dialogs
   isSubagentCreateDialogOpen: boolean;
   isAgentsManagerDialogOpen: boolean;
+  // Provider dialog for /provider connect
+  isProviderDialogOpen: boolean;
 }
 
 export const UIStateContext = createContext<UIState | null>(null);

@@ -26,6 +26,9 @@ import { languageCommand } from '../ui/commands/languageCommand.js';
 import { mcpCommand } from '../ui/commands/mcpCommand.js';
 import { memoryCommand } from '../ui/commands/memoryCommand.js';
 import { modelCommand } from '../ui/commands/modelCommand.js';
+import { modelsCommand } from '../ui/commands/modelsCommand.js';
+import { providerCommand } from '../ui/commands/providerCommand.js';
+import { statusCommand } from '../ui/commands/statusCommand.js';
 import { permissionsCommand } from '../ui/commands/permissionsCommand.js';
 import { quitCommand } from '../ui/commands/quitCommand.js';
 import { restoreCommand } from '../ui/commands/restoreCommand.js';
@@ -55,6 +58,13 @@ export class BuiltinCommandLoader implements ICommandLoader {
    * @returns A promise that resolves to an array of `SlashCommand` objects.
    */
   async loadCommands(_signal: AbortSignal): Promise<SlashCommand[]> {
+    let ideCmd: SlashCommand | null = null;
+    try {
+      ideCmd = await ideCommand();
+    } catch (e) {
+      console.warn('Failed to load ide command:', e);
+    }
+
     const allDefinitions: Array<SlashCommand | null> = [
       aboutCommand,
       agentsCommand,
@@ -69,12 +79,15 @@ export class BuiltinCommandLoader implements ICommandLoader {
       editorCommand,
       extensionsCommand,
       helpCommand,
-      await ideCommand(),
+      ideCmd,
       initCommand,
       languageCommand,
       mcpCommand,
       memoryCommand,
       modelCommand,
+      modelsCommand,
+      providerCommand,
+      statusCommand,
       ...(this.config?.getFolderTrust() ? [permissionsCommand] : []),
       quitCommand,
       restoreCommand(this.config),
