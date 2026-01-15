@@ -26,6 +26,7 @@ export const ToolNames = {
   WEB_SEARCH: 'web_search',
   LS: 'list_directory',
   MULTI_EDIT: 'multi_edit',
+  BATCH: 'batch',
 } as const;
 
 /**
@@ -50,6 +51,7 @@ export const ToolDisplayNames = {
   WEB_SEARCH: 'WebSearch',
   LS: 'ListFiles',
   MULTI_EDIT: 'MultiEdit',
+  BATCH: 'Batch',
 } as const;
 
 // Migration from old tool names to new tool names
