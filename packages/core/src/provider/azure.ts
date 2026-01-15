@@ -16,6 +16,7 @@ import type {
   ChatResponse,
   ChatChunk,
   ChatMessage,
+  AzureProviderConfig,
 } from './types.js';
 
 /**
@@ -31,7 +32,18 @@ export class AzureProvider implements Provider {
       name: 'GPT-4o (Azure)',
       providerID: 'azure',
       contextWindow: 128000,
-      maxOutput: 4096,
+      maxOutput: 16384,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 2.5, output: 10 },
+      status: 'active',
+      family: 'gpt-4o',
     },
     'gpt-4o-mini': {
       id: 'gpt-4o-mini',
@@ -39,6 +51,35 @@ export class AzureProvider implements Provider {
       providerID: 'azure',
       contextWindow: 128000,
       maxOutput: 16384,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 0.15, output: 0.6 },
+      status: 'active',
+      family: 'gpt-4o',
+    },
+    'gpt-4-turbo': {
+      id: 'gpt-4-turbo',
+      name: 'GPT-4 Turbo (Azure)',
+      providerID: 'azure',
+      contextWindow: 128000,
+      maxOutput: 4096,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 10, output: 30 },
+      status: 'active',
+      family: 'gpt-4',
     },
     'gpt-35-turbo': {
       id: 'gpt-35-turbo',
@@ -46,18 +87,69 @@ export class AzureProvider implements Provider {
       providerID: 'azure',
       contextWindow: 16385,
       maxOutput: 4096,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 0.5, output: 1.5 },
+      status: 'active',
+      family: 'gpt-3.5',
+    },
+    o1: {
+      id: 'o1',
+      name: 'o1 (Azure)',
+      providerID: 'azure',
+      contextWindow: 200000,
+      maxOutput: 100000,
+      capabilities: {
+        temperature: false,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 15, output: 60 },
+      status: 'active',
+      family: 'o1',
+    },
+    'o1-mini': {
+      id: 'o1-mini',
+      name: 'o1 Mini (Azure)',
+      providerID: 'azure',
+      contextWindow: 128000,
+      maxOutput: 65536,
+      capabilities: {
+        temperature: false,
+        reasoning: true,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 1.1, output: 4.4 },
+      status: 'active',
+      family: 'o1',
     },
   };
 
   private client;
-  private config: ProviderConfig = {};
+  private config: AzureProviderConfig = {};
   private lastHealth: ProviderHealth | null = null;
 
-  constructor(config?: ProviderConfig) {
+  constructor(config?: AzureProviderConfig) {
     this.config = config ?? {};
     this.client = createAzure({
-      resourceName: this.config.baseUrl ?? process.env['AZURE_RESOURCE_NAME'],
+      resourceName:
+        this.config.resourceName ??
+        this.config.baseUrl ??
+        process.env['AZURE_RESOURCE_NAME'],
       apiKey: this.config.apiKey ?? process.env['AZURE_API_KEY'],
+      apiVersion: this.config.apiVersion,
     });
   }
 
@@ -66,9 +158,14 @@ export class AzureProvider implements Provider {
    */
   async initialize(config: ProviderConfig): Promise<void> {
     this.config = { ...this.config, ...config };
+    const azureConfig = this.config as AzureProviderConfig;
     this.client = createAzure({
-      resourceName: this.config.baseUrl ?? process.env['AZURE_RESOURCE_NAME'],
+      resourceName:
+        azureConfig.resourceName ??
+        this.config.baseUrl ??
+        process.env['AZURE_RESOURCE_NAME'],
       apiKey: this.config.apiKey ?? process.env['AZURE_API_KEY'],
+      apiVersion: azureConfig.apiVersion,
     });
   }
 

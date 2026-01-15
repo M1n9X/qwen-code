@@ -12,6 +12,7 @@ import type {
   ChatResponse,
   ChatChunk,
   ChatMessage,
+  ModelSelection,
 } from './types.js';
 import { ProviderError } from './types.js';
 
@@ -23,6 +24,8 @@ const DEFAULT_CONFIG: Required<CoordinatorConfig> = {
   maxRetries: 3,
   retryDelay: 1000,
   healthCheckInterval: 60000,
+  autoModelSwitch: false,
+  defaultOptions: {},
 };
 
 /**
@@ -32,6 +35,7 @@ const DEFAULT_CONFIG: Required<CoordinatorConfig> = {
 export class ProviderCoordinator implements Coordinator {
   private providers: Map<string, Provider> = new Map();
   private activeProviderId: string | null = null;
+  private activeModelId: string | null = null;
   private fallbackOrder: string[] = [];
   private config: Required<CoordinatorConfig>;
 
@@ -400,5 +404,117 @@ export class ProviderCoordinator implements Coordinator {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Switches to a different model (can be on same or different provider)
+   */
+  switchModel(providerId: string, modelId: string): void {
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new ProviderError(
+        `Provider ${providerId} not found`,
+        'invalid_request',
+        providerId,
+        false,
+      );
+    }
+
+    // Verify model exists in provider
+    if (!provider.models[modelId]) {
+      throw new ProviderError(
+        `Model ${modelId} not found in provider ${providerId}`,
+        'invalid_request',
+        providerId,
+        false,
+      );
+    }
+
+    this.activeProviderId = providerId;
+    this.activeModelId = modelId;
+  }
+
+  /**
+   * Gets the current model selection
+   */
+  getCurrentModel(): ModelSelection | null {
+    if (!this.activeProviderId) {
+      return null;
+    }
+
+    const provider = this.providers.get(this.activeProviderId);
+    if (!provider) {
+      return null;
+    }
+
+    // If no specific model selected, use first model from provider
+    const modelId = this.activeModelId ?? Object.keys(provider.models)[0];
+    if (!modelId) {
+      return null;
+    }
+
+    const model = provider.models[modelId];
+    if (!model) {
+      return null;
+    }
+
+    return {
+      providerId: this.activeProviderId,
+      modelId,
+      model,
+    };
+  }
+
+  /**
+   * Lists all available models across all providers
+   */
+  listAllModels(): ModelSelection[] {
+    const models: ModelSelection[] = [];
+
+    for (const [providerId, provider] of this.providers) {
+      for (const [modelId, model] of Object.entries(provider.models)) {
+        models.push({
+          providerId,
+          modelId,
+          model,
+        });
+      }
+    }
+
+    return models;
+  }
+
+  /**
+   * Finds a model by ID across all providers
+   */
+  findModel(modelId: string): ModelSelection | null {
+    for (const [providerId, provider] of this.providers) {
+      const model = provider.models[modelId];
+      if (model) {
+        return {
+          providerId,
+          modelId,
+          model,
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Gets the coordinator configuration
+   */
+  getConfig(): Required<CoordinatorConfig> {
+    return { ...this.config };
+  }
+
+  /**
+   * Updates the coordinator configuration
+   */
+  updateConfig(config: Partial<CoordinatorConfig>): void {
+    this.config = { ...this.config, ...config };
+    if (config.fallbackOrder) {
+      this.fallbackOrder = config.fallbackOrder;
+    }
   }
 }

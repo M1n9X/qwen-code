@@ -16,6 +16,7 @@ import type {
   ChatResponse,
   ChatChunk,
   ChatMessage,
+  OpenRouterProviderConfig,
 } from './types.js';
 
 /**
@@ -27,12 +28,59 @@ export class OpenRouterProvider implements Provider {
   name = 'OpenRouter';
 
   models: Record<string, Model> = {
+    'anthropic/claude-sonnet-4': {
+      id: 'anthropic/claude-sonnet-4',
+      name: 'Claude Sonnet 4 (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 200000,
+      maxOutput: 16000,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 3, output: 15 },
+      status: 'active',
+      family: 'claude-4',
+    },
+    'anthropic/claude-3.7-sonnet': {
+      id: 'anthropic/claude-3.7-sonnet',
+      name: 'Claude 3.7 Sonnet (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 200000,
+      maxOutput: 16000,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 3, output: 15 },
+      status: 'active',
+      family: 'claude-3.7',
+    },
     'anthropic/claude-3.5-sonnet': {
       id: 'anthropic/claude-3.5-sonnet',
       name: 'Claude 3.5 Sonnet (OpenRouter)',
       providerID: 'openrouter',
       contextWindow: 200000,
       maxOutput: 8192,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 3, output: 15 },
+      status: 'active',
+      family: 'claude-3.5',
     },
     'anthropic/claude-3-opus': {
       id: 'anthropic/claude-3-opus',
@@ -40,13 +88,35 @@ export class OpenRouterProvider implements Provider {
       providerID: 'openrouter',
       contextWindow: 200000,
       maxOutput: 4096,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 15, output: 75 },
+      status: 'active',
+      family: 'claude-3',
     },
     'openai/gpt-4o': {
       id: 'openai/gpt-4o',
       name: 'GPT-4o (OpenRouter)',
       providerID: 'openrouter',
       contextWindow: 128000,
-      maxOutput: 4096,
+      maxOutput: 16384,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 2.5, output: 10 },
+      status: 'active',
+      family: 'gpt-4o',
     },
     'openai/gpt-4o-mini': {
       id: 'openai/gpt-4o-mini',
@@ -54,39 +124,159 @@ export class OpenRouterProvider implements Provider {
       providerID: 'openrouter',
       contextWindow: 128000,
       maxOutput: 16384,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 0.15, output: 0.6 },
+      status: 'active',
+      family: 'gpt-4o',
     },
-    'meta-llama/llama-3.1-405b-instruct': {
-      id: 'meta-llama/llama-3.1-405b-instruct',
-      name: 'Llama 3.1 405B (OpenRouter)',
+    'openai/o1': {
+      id: 'openai/o1',
+      name: 'o1 (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 200000,
+      maxOutput: 100000,
+      capabilities: {
+        temperature: false,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 15, output: 60 },
+      status: 'active',
+      family: 'o1',
+    },
+    'google/gemini-2.5-pro': {
+      id: 'google/gemini-2.5-pro',
+      name: 'Gemini 2.5 Pro (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 1000000,
+      maxOutput: 65536,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 1.25, output: 10 },
+      status: 'active',
+      family: 'gemini-2.5',
+    },
+    'google/gemini-2.5-flash': {
+      id: 'google/gemini-2.5-flash',
+      name: 'Gemini 2.5 Flash (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 1000000,
+      maxOutput: 65536,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolCall: true,
+        imageInput: true,
+        streaming: true,
+      },
+      cost: { input: 0.15, output: 0.6 },
+      status: 'active',
+      family: 'gemini-2.5',
+    },
+    'meta-llama/llama-3.3-70b-instruct': {
+      id: 'meta-llama/llama-3.3-70b-instruct',
+      name: 'Llama 3.3 70B (OpenRouter)',
       providerID: 'openrouter',
       contextWindow: 128000,
       maxOutput: 4096,
-    },
-    'google/gemini-pro-1.5': {
-      id: 'google/gemini-pro-1.5',
-      name: 'Gemini Pro 1.5 (OpenRouter)',
-      providerID: 'openrouter',
-      contextWindow: 2000000,
-      maxOutput: 8192,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 0.12, output: 0.3 },
+      status: 'active',
+      family: 'llama-3.3',
     },
     'deepseek/deepseek-chat': {
       id: 'deepseek/deepseek-chat',
-      name: 'DeepSeek Chat (OpenRouter)',
+      name: 'DeepSeek V3 (OpenRouter)',
       providerID: 'openrouter',
       contextWindow: 64000,
       maxOutput: 8192,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 0.14, output: 0.28 },
+      status: 'active',
+      family: 'deepseek',
+    },
+    'deepseek/deepseek-r1': {
+      id: 'deepseek/deepseek-r1',
+      name: 'DeepSeek R1 (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 64000,
+      maxOutput: 8192,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 0.55, output: 2.19 },
+      status: 'active',
+      family: 'deepseek',
+    },
+    'qwen/qwen-2.5-coder-32b-instruct': {
+      id: 'qwen/qwen-2.5-coder-32b-instruct',
+      name: 'Qwen 2.5 Coder 32B (OpenRouter)',
+      providerID: 'openrouter',
+      contextWindow: 32768,
+      maxOutput: 8192,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: false,
+        toolCall: true,
+        imageInput: false,
+        streaming: true,
+      },
+      cost: { input: 0.07, output: 0.16 },
+      status: 'active',
+      family: 'qwen',
     },
   };
 
   private client;
-  private config: ProviderConfig = {};
+  private config: OpenRouterProviderConfig = {};
   private lastHealth: ProviderHealth | null = null;
 
-  constructor(config?: ProviderConfig) {
+  constructor(config?: OpenRouterProviderConfig) {
     this.config = config ?? {};
     this.client = createOpenAI({
       baseURL: this.config.baseUrl ?? 'https://openrouter.ai/api/v1',
       apiKey: this.config.apiKey ?? process.env['OPENROUTER_API_KEY'],
+      headers: {
+        'HTTP-Referer': this.config.siteUrl ?? 'https://qwen-code.ai/',
+        'X-Title': this.config.siteName ?? 'qwen-code',
+      },
     });
   }
 
@@ -95,9 +285,14 @@ export class OpenRouterProvider implements Provider {
    */
   async initialize(config: ProviderConfig): Promise<void> {
     this.config = { ...this.config, ...config };
+    const orConfig = this.config as OpenRouterProviderConfig;
     this.client = createOpenAI({
       baseURL: this.config.baseUrl ?? 'https://openrouter.ai/api/v1',
       apiKey: this.config.apiKey ?? process.env['OPENROUTER_API_KEY'],
+      headers: {
+        'HTTP-Referer': orConfig.siteUrl ?? 'https://qwen-code.ai/',
+        'X-Title': orConfig.siteName ?? 'qwen-code',
+      },
     });
   }
 

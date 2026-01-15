@@ -12,6 +12,48 @@ import type { LanguageModel, ModelMessage } from 'ai';
 export type ChatMessage = ModelMessage;
 
 /**
+ * Supported provider types
+ */
+export type ProviderType =
+  | 'openai'
+  | 'anthropic'
+  | 'azure'
+  | 'bedrock'
+  | 'google'
+  | 'google-vertex'
+  | 'openrouter'
+  | 'local'
+  | 'openai-compatible';
+
+/**
+ * Model capabilities
+ */
+export interface ModelCapabilities {
+  /** Supports temperature parameter */
+  temperature?: boolean;
+  /** Supports reasoning/thinking mode */
+  reasoning?: boolean;
+  /** Supports file attachments */
+  attachment?: boolean;
+  /** Supports tool/function calling */
+  toolCall?: boolean;
+  /** Supports image input */
+  imageInput?: boolean;
+  /** Supports streaming */
+  streaming?: boolean;
+}
+
+/**
+ * Model cost information (per million tokens)
+ */
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+/**
  * Model definition with metadata
  */
 export interface Model {
@@ -20,6 +62,14 @@ export interface Model {
   providerID: string;
   contextWindow?: number;
   maxOutput?: number;
+  /** Model capabilities */
+  capabilities?: ModelCapabilities;
+  /** Cost per million tokens */
+  cost?: ModelCost;
+  /** Model status */
+  status?: 'active' | 'beta' | 'deprecated';
+  /** Model family (e.g., 'gpt-4', 'claude-3') */
+  family?: string;
 }
 
 /**
@@ -32,6 +82,39 @@ export interface ProviderConfig {
   maxTokens?: number;
   temperature?: number;
   timeout?: number;
+  /** Additional headers to send with requests */
+  headers?: Record<string, string>;
+  /** Provider-specific options */
+  providerOptions?: Record<string, unknown>;
+}
+
+/**
+ * Extended provider configuration for specific providers
+ */
+export interface AzureProviderConfig extends ProviderConfig {
+  resourceName?: string;
+  deploymentName?: string;
+  apiVersion?: string;
+}
+
+export interface BedrockProviderConfig extends ProviderConfig {
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  profile?: string;
+}
+
+export interface GoogleProviderConfig extends ProviderConfig {
+  project?: string;
+  location?: string;
+}
+
+export interface OpenRouterProviderConfig extends ProviderConfig {
+  /** Site URL for attribution */
+  siteUrl?: string;
+  /** Site name for attribution */
+  siteName?: string;
 }
 
 /**
@@ -200,6 +283,19 @@ export interface CoordinatorConfig {
   maxRetries?: number;
   retryDelay?: number;
   healthCheckInterval?: number;
+  /** Enable automatic model switching on context overflow */
+  autoModelSwitch?: boolean;
+  /** Default provider options to merge with all requests */
+  defaultOptions?: ChatOptions;
+}
+
+/**
+ * Model selection result
+ */
+export interface ModelSelection {
+  providerId: string;
+  modelId: string;
+  model: Model;
 }
 
 /**
@@ -258,4 +354,44 @@ export interface Coordinator {
     messages: ChatMessage[],
     options?: ChatOptions,
   ): AsyncGenerator<ChatChunk>;
+
+  /**
+   * Switches to a different model (can be on same or different provider)
+   */
+  switchModel(providerId: string, modelId: string): void;
+
+  /**
+   * Gets the current model selection
+   */
+  getCurrentModel(): ModelSelection | null;
+
+  /**
+   * Lists all available models across all providers
+   */
+  listAllModels(): ModelSelection[];
+
+  /**
+   * Finds a model by ID across all providers
+   */
+  findModel(modelId: string): ModelSelection | null;
+}
+
+/**
+ * Provider factory configuration
+ */
+export interface ProviderFactoryConfig {
+  type: ProviderType;
+  id?: string;
+  name?: string;
+  config?: ProviderConfig;
+}
+
+/**
+ * Multi-provider configuration (for config file)
+ */
+export interface MultiProviderConfig {
+  providers: Record<string, ProviderFactoryConfig>;
+  defaultProvider?: string;
+  fallbackOrder?: string[];
+  coordinatorConfig?: CoordinatorConfig;
 }
